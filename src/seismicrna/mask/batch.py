@@ -29,42 +29,47 @@ def apply_mask(batch: RefseqMutsBatch,
                positions: Iterable[int] | None = None,
                return_inverse_reads: bool = False,
                return_inverse_positions: bool = False):
-    # Initialize the inverse dictionary if needed
     if return_inverse_reads or return_inverse_positions:
+        if return_inverse_reads:
+            if reads is None or reads.size == 0:
+                raise AttributeError("To return inverse reads, \
+                                     at least 1 read must be masked.")
+        if return_inverse_positions:
+            if positions is None or positions.size == 0:
+                raise AttributeError("To return inverse positions, \
+                                     at least 1 position must be masked.")
         inverse = dict()
-
     # Sanitize and validate positions
     if positions is not None:
         positions = sanitize_pos(positions, batch.max_pos)
     else:
         positions = batch.pos_nums
-
-    # Calculate inverse positions if needed
     if return_inverse_positions:
         inverse_positions = np.setdiff1d(batch.pos_nums, positions)
-
-    # Create the muts dictionary
     muts = dict()
     for pos in positions:
         muts[pos] = dict()
         for mut, pos_mut_reads in batch.muts.get(pos, dict()).items():
-            selected_reads = np.intersect1d(pos_mut_reads, reads, assume_unique=True) if reads is not None else pos_mut_reads
+            selected_reads = (np.intersect1d(pos_mut_reads,
+                                            reads,
+                                            assume_unique=True)
+                                              if reads
+                                              is not None
+                                              else pos_mut_reads)
             muts[pos][mut] = selected_reads
-
-    # Handle inverse reads
-    if return_inverse_reads and reads is not None:
-        for pos in positions:
+    # Handle inverse reads.
+    if return_inverse_reads:
+        for pos in (inverse_positions 
+                    if return_inverse_positions else positions):
             inverse[pos] = dict()
             for mut, pos_mut_reads in batch.muts.get(pos, dict()).items():
-                inverse[pos][mut] = np.setdiff1d(pos_mut_reads, reads, assume_unique=True) if reads is not None else np.array([])
-    else:
-        inverse = dict()
-        
-    # Directly assign muts to inverse if only inverse positions are needed
-    if return_inverse_positions: 
-        if not return_inverse_reads:
-            inverse = batch.muts 
-            
+                inverse[pos][mut] = np.setdiff1d(pos_mut_reads,
+                                                 reads,
+                                                 assume_unique=True)
+    elif return_inverse_positions:
+        for pos in inverse_positions:
+            if pos in batch.muts:
+                inverse[pos] = batch.muts[pos]
     if reads is not None:
         read_nums = np.asarray(reads, dtype=batch.read_dtype)
         read_indexes = batch.read_indexes[read_nums]
@@ -79,7 +84,7 @@ def apply_mask(batch: RefseqMutsBatch,
             inv_mid5s = np.delete(batch.mid5s, read_indexes)
             inv_mid3s = np.delete(batch.mid3s, read_indexes)
             inv_end3s = np.delete(batch.end3s, read_indexes)
-        else:
+        elif return_inverse_positions:
             inv_read_nums = read_nums
             inv_end5s = end5s
             inv_mid5s = mid5s
@@ -91,19 +96,13 @@ def apply_mask(batch: RefseqMutsBatch,
         mid5s = batch.mid5s
         mid3s = batch.mid3s
         end3s = batch.end3s
-        if return_inverse_reads:
-            inv_read_nums = inv_end5s = inv_mid5s = inv_mid3s = inv_end3s = np.array([])
-        else:
+        if return_inverse_positions:
             inv_read_nums = read_nums
             inv_end5s = end5s
             inv_mid5s = mid5s
             inv_mid3s = mid3s
             inv_end3s = end3s
     if return_inverse_reads or return_inverse_positions:
-        inv_muts = dict()
-        for pos in (inverse_positions if return_inverse_positions else positions):
-            if pos in inverse:
-                inv_muts[pos] = inverse[pos]
         return (MaskMutsBatch(batch=batch.batch,
                               refseq=batch.refseq,
                               muts=muts,
@@ -115,7 +114,7 @@ def apply_mask(batch: RefseqMutsBatch,
                               sanitize=False),
                 MaskMutsBatch(batch=batch.batch,
                               refseq=batch.refseq,
-                              muts=inv_muts,
+                              muts=inverse,
                               read_nums=inv_read_nums,
                               end5s=inv_end5s,
                               mid5s=inv_mid5s,
