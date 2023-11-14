@@ -23,6 +23,7 @@ from ..core.parallel import as_list_of_tuples, dispatch
 from ..core.ngs import encode_phred
 from ..core.io import RefseqIO
 from ..core.seq import DNA, get_fasta_seq
+from ..core.write import need_write
 
 logger = getLogger(__name__)
 
@@ -95,8 +96,8 @@ def generate_batch(batch: int, *,
                                 batch)
     logger.info(f"Ended computing relation vectors for batch {batch} "
                 f"of {xam_view}")
-    _, relv_check = relvecs.save(out_dir, brotli_level, overwrite=True)
-    _, name_check = names.save(out_dir, brotli_level, overwrite=True)
+    _, relv_check = relvecs.save(out_dir, brotli_level, force=True)
+    _, name_check = names.save(out_dir, brotli_level, force=True)
     return relvecs.num_reads, relv_check, name_check
 
 
@@ -122,7 +123,7 @@ class RelationWriter(object):
         report = RelateReport(sample=self.sample,
                               ref=self.ref,
                               **kwargs)
-        return report.save(out_dir, overwrite=True)
+        return report.save(out_dir, force=True)
 
     def _write_refseq(self, out_dir: Path, brotli_level: int):
         """ Write the reference sequence to a file. """
@@ -195,8 +196,7 @@ class RelationWriter(object):
         report_file = RelateReport.build_path(top=out_dir,
                                               sample=self.sample,
                                               ref=self.ref)
-        # Check if the report file already exists.
-        if force or not report_file.is_file():
+        if need_write(report_file, force):
             began = datetime.now()
             # Write the reference sequence to a file.
             refcheck = self._write_refseq(out_dir, brotli_level)
@@ -215,8 +215,6 @@ class RelationWriter(object):
                                refseq_checksum=refcheck,
                                began=began,
                                ended=ended)
-        else:
-            logger.warning(f"File exists: {report_file}")
         return report_file
 
     def __str__(self):

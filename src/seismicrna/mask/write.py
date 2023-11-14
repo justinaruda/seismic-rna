@@ -17,6 +17,7 @@ from ..core.batch import RefseqMutsBatch, accum_per_pos
 from ..core.io import DEFAULT_BROTLI_LEVEL
 from ..core.rel import RelPattern
 from ..core.seq import Section, index_to_pos
+from ..core.write import need_write
 from ..relate.data import RelateLoader
 
 logger = getLogger(__name__)
@@ -353,16 +354,14 @@ def mask_section(dataset: RelateLoader,
                                         sample=dataset.sample,
                                         ref=dataset.ref,
                                         sect=section.name)
-    if force or not report_file.is_file():
+    if need_write(report_file, force):
         began = datetime.now()
         pattern = RelPattern.from_counts(count_del, count_ins, discount)
         masker = RelMasker(dataset, section, pattern, **kwargs)
         masker.mask()
         ended = datetime.now()
         report = masker.create_report(began, ended)
-        report.save(dataset.top, overwrite=True)
-    else:
-        logger.warning(f"File exists: {report_file}")
+        report.save(dataset.top, force=True)
     return report_file
 
 ########################################################################

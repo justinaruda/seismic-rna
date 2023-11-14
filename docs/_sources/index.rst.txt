@@ -15,3 +15,5 @@ SEISMIC-RNA User Guide
     formats/index
     data/index
     algos/index
+    issues
+    writeme

@@ -24,12 +24,40 @@ from ..rand import rng
 from ..types import BITS_PER_BYTE, get_uint_type
 
 # Nucleic acid sequence alphabets.
-BASEA = 'A'
-BASEC = 'C'
-BASEG = 'G'
-BASET = 'T'
-BASEU = 'U'
-BASEN = 'N'
+BASEA = "A"
+BASEC = "C"
+BASEG = "G"
+BASET = "T"
+BASEU = "U"
+BASEN = "N"
+
+# IUPAC extended nucleic acid alphabet.
+IUPAC_AC = "M"
+IUPAC_AG = "R"
+IUPAC_AT = "W"
+IUPAC_CG = "S"
+IUPAC_CT = "Y"
+IUPAC_GT = "K"
+IUPAC_ACG = "V"
+IUPAC_ACT = "H"
+IUPAC_AGT = "D"
+IUPAC_CGT = "B"
+IUPAC_CODES = frozenset([BASEA,
+                         BASEC,
+                         BASEG,
+                         BASET,
+                         BASEU,
+                         IUPAC_AC,
+                         IUPAC_AG,
+                         IUPAC_AT,
+                         IUPAC_CG,
+                         IUPAC_CT,
+                         IUPAC_GT,
+                         IUPAC_ACG,
+                         IUPAC_ACT,
+                         IUPAC_AGT,
+                         IUPAC_CGT,
+                         BASEN])
 
 # Nucleic acid compression symbols.
 COMPRESS_TYPE = get_uint_type(1)
@@ -39,11 +67,11 @@ BLOCK_SIZE = BITS_PER_BYTE // BITS_PER_BASE
 BLOCK_FORMAT = ":".join(["{}", f"{BASEN}<{BLOCK_SIZE}"])
 
 # Nucleic acid pictogram characters.
-PICTA = '▲'
-PICTC = '⌠'
-PICTN = '○'
-PICTG = '⌡'
-PICTT = PICTU = '▼'
+PICTA = "▲"
+PICTC = "⌠"
+PICTN = "○"
+PICTG = "⌡"
+PICTT = PICTU = "▼"
 
 
 class XNA(ABC):
@@ -79,6 +107,12 @@ class XNA(ABC):
     def get_nonalphaset(cls):
         """ Get the printable characters not in the alphabet. """
         return frozenset(printable) - cls.get_alphaset()
+
+    @classmethod
+    @cache
+    def get_other_iupac(cls):
+        """ Get the IUPAC extended characters not in the alphabet. """
+        return frozenset(IUPAC_CODES - cls.get_alphaset())
 
     @classmethod
     @cache

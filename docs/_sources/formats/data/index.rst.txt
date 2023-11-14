@@ -2,5 +2,10 @@
 Data Formats
 ========================================================================
 
-.. include:: fastq.rst
-.. include:: sam.rst
+.. toctree::
+    :maxdepth: 2
+
+    fasta
+    fastq
+    xam
+    brickle

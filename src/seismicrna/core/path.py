@@ -67,7 +67,7 @@ CMD_REL_DIR = "relate"
 CMD_MSK_DIR = "mask"
 CMD_CLS_DIR = "cluster"
 CMD_TBL_DIR = "table"
-CMD_FLD_DiR = "fold"
+CMD_FOLD_DIR = "fold"
 CMD_GRA_DIR = "graph"
 
 # Directories for steps
@@ -192,16 +192,18 @@ def sanitize(path: str | pl.Path):
 
 def validate_str(txt: str):
     if not isinstance(txt, str):
-        raise PathTypeError(f"Expected 'str', got '{type(txt).__name__}'")
+        raise PathTypeError(
+            f"Expected {str.__name__}, but got {type(txt).__name__}")
     if not txt:
-        raise PathValueError(f"Text is empty")
+        raise PathValueError(f"Empty string: {repr(txt)}")
     if illegal := "".join(sorted(set(txt) - STR_CHARS_SET)):
-        raise PathValueError(f"Text '{txt}' has illegal characters: {illegal}")
+        raise PathValueError(f"{repr(txt)} has illegal characters: {illegal}")
 
 
 def validate_top(top: pl.Path):
     if not isinstance(top, pl.Path):
-        raise PathTypeError(f"Expected 'Path', got '{type(top).__name__}'")
+        raise PathTypeError(
+            f"Expected {Path.__name__}, but got {type(top).__name__}")
     if not top.parent.is_dir():
         raise PathValueError(f"Not a directory: {top.parent}")
     if top.is_file():
@@ -209,8 +211,8 @@ def validate_top(top: pl.Path):
 
 
 def validate_int(num: int):
-    if num < 0:
-        raise PathValueError(f"Expected integer ≥ 0, got {num}")
+    if not isinstance(num, int) or num < 0:
+        raise PathValueError(f"Expected an integer ≥ 0, but got {num}")
 
 
 VALIDATE = {int: validate_int,
@@ -233,14 +235,14 @@ class Field(object):
         if self.is_ext:
             if self.dtype is not str:
                 raise PathTypeError("Extension field must be type 'str', "
-                                    f"but got type '{self.dtype.__name__}'")
+                                    f"but got type {repr(self.dtype.__name__)}")
             if not self.options:
                 raise PathValueError("Extension field must have options")
 
     def validate(self, val: Any):
         if not isinstance(val, self.dtype):
-            raise PathTypeError(f"Expected a '{self.dtype.__name__}', but got "
-                                f"{repr(val)} of type '{type(val).__name__}'")
+            raise PathTypeError(f"Expected {repr(self.dtype.__name__)}, but "
+                                f"got {repr(val)} ({repr(type(val).__name__)})")
         if self.options and val not in self.options:
             raise PathValueError(
                 f"Invalid option {repr(val)}; expected one of {self.options}")
@@ -256,13 +258,13 @@ class Field(object):
         try:
             val = self.dtype(text)
         except Exception as error:
-            raise PathValueError(f"Failed to interpret '{text}' as type "
-                                 f"'{self.dtype.__name__}': {error}")
+            raise PathValueError(f"Failed to interpret {repr(text)} as type "
+                                 f"{repr(self.dtype.__name__)}: {error}")
         self.validate(val)
         return val
 
     def __str__(self):
-        return f"Path Field '{self.dtype.__name__}'"
+        return f"{type(self).__name__}: {repr(self.dtype.__name__)}"
 
 
 # Fields
@@ -274,7 +276,7 @@ CmdField = Field(str, [CMD_FQC_DIR,
                        CMD_MSK_DIR,
                        CMD_CLS_DIR,
                        CMD_TBL_DIR,
-                       CMD_FLD_DiR,
+                       CMD_FOLD_DIR,
                        CMD_GRA_DIR])
 StepField = Field(str, STEPS)
 IntField = Field(int)
@@ -409,7 +411,7 @@ class Segment(object):
         return fields
 
     def __str__(self):
-        return f"Path Segment '{self.name}'"
+        return f"{type(self).__name__}: {repr(self.name)}"
 
 
 # Field names
@@ -602,6 +604,9 @@ class Path(object):
             fields.update(seg_type.parse(tail))
         return fields
 
+    def __str__(self):
+        return f"{type(self).__name__}: {list(map(str, self.seg_types))}"
+
 
 # Path creation routines
 
@@ -664,7 +669,6 @@ def find_files(path: pl.Path, segments: Sequence[Segment]):
       `path.iterdir()`.
     """
     if path.is_file():
-        # Check if the given path is a file.
         try:
             # Determine if the file matches the segments.
             parse(path, *segments)
@@ -672,14 +676,17 @@ def find_files(path: pl.Path, segments: Sequence[Segment]):
             # If not, skip it.
             pass
         else:
-            # If so, return it.
-            logger.debug(f"File {path} matches {segments}")
+            # If so, yield it.
+            logger.debug(f"File {path} matches {list(map(str, segments))}")
             yield path
-    else:
-        # Otherwise, assume it is a directory and search it for reports.
-        logger.debug(f"Searching {path} for files matching {segments}")
+    elif path.is_dir():
+        # Search the directory for files matching the segments.
+        logger.debug(
+            f"Searching {path} for files matching {list(map(str, segments))}")
         yield from chain(*map(partial(find_files, segments=segments),
                               path.iterdir()))
+    else:
+        logger.warning(f"Path does not exist: {path}")
 
 
 def find_files_chain(paths: Iterable[pl.Path], segments: Sequence[Segment]):
@@ -687,8 +694,6 @@ def find_files_chain(paths: Iterable[pl.Path], segments: Sequence[Segment]):
     for path in deduplicated(paths):
         try:
             yield from find_files(path, segments)
-        except FileNotFoundError:
-            logger.error(f"Path does not exist: {path}")
         except Exception as error:
             logger.error(f"Failed search for {path}: {error}")
 

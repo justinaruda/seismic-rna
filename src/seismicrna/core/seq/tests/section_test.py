@@ -669,17 +669,6 @@ class TestSectionUnmasked(ut.TestCase):
         expect = np.array([46, 47, 48, 50, 51, 53, 56, 57])
         self.assertTrue(np.array_equal(section.unmasked_int, expect))
 
-    def test_unmasked_zero(self):
-        seq = DNA("CCCGCATCCCGACCAACACTAAGA")
-        seq5 = 38
-        end5 = 46
-        end3 = 58
-        section = Section("myref", seq, seq5=seq5, end5=end5, end3=end3)
-        section.add_mask("mymask1", [49, 54, 58])
-        section.add_mask("mymask2", [55, 49, 52])
-        expect = np.array([0, 1, 2, 4, 5, 7, 10, 11])
-        self.assertTrue(np.array_equal(section.unmasked_zero, expect))
-
     def test_unmasked(self):
         seq = DNA("CCCGCATCCCGACCAACACTAAGA")
         seq5 = 38
@@ -834,7 +823,7 @@ class TestIntersection(ut.TestCase):
         section1 = Section("myref", seq, end5=6, end3=17)
         section2 = Section("myref", seq, end5=19, end3=35)
         inter = intersection(section1, section2)
-        self.assertEqual(inter.seq, DNA(''))
+        self.assertEqual(inter.seq, DNA(""))
         self.assertEqual(inter.end5, 19)
         self.assertEqual(inter.end3, 18)
         self.assertEqual(inter.name, f"19-18")

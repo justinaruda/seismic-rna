@@ -18,29 +18,21 @@ class UniqReads(object):
 
     @classmethod
     def from_dataset(cls, dataset: MaskMerger):
-        (muts_per_pos,
-         batch_to_uniq,
-         count_per_uniq) = get_uniq_reads(dataset.section.unmasked_int,
-                                          dataset.pattern,
-                                          dataset.iter_batches())
         return cls(dataset.sample,
-                   dataset.ref,
                    dataset.section,
                    dataset.min_mut_gap,
-                   muts_per_pos,
-                   batch_to_uniq,
-                   count_per_uniq)
+                   *get_uniq_reads(dataset.section.unmasked_int,
+                                   dataset.pattern,
+                                   dataset.iter_batches()))
 
     def __init__(self,
                  sample: str,
-                 ref: str,
                  section: Section,
                  min_mut_gap: int,
                  muts_per_pos: list[np.ndarray],
                  batch_to_uniq: list[pd.Series],
                  counts_per_uniq: np.ndarray):
         self.sample = sample
-        self.ref = ref
         self.section = section
         self.min_mut_gap = min_mut_gap
         if len(muts_per_pos) != self.num_pos:
@@ -103,7 +95,6 @@ class UniqReads(object):
     def __eq__(self, other):
         if isinstance(other, UniqReads):
             return (self.sample == other.sample
-                    and self.ref == other.ref
                     and self.section == other.section
                     and self.min_mut_gap == other.min_mut_gap
                     and np.array_equal(self.pos_nums,
@@ -120,6 +111,9 @@ class UniqReads(object):
                     and np.array_equal(self.counts_per_uniq,
                                        other.counts_per_uniq))
         return NotImplemented
+
+    def __str__(self):
+        return f"{type(self).__name__} of {self.sample} over {self.section}"
 
 
 def uniq_reads_to_mutations(uniq_reads: Iterable[tuple],
