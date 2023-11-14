@@ -127,7 +127,7 @@ class RefseqMutsBatch(MutsBatch, ABC):
                                    self.mid3s,
                                    self.end3s,
                                    self.read_nums)
-
+        
     @cached_property
     def cover_per_pos(self):
         """ Number of reads covering each position. """
@@ -137,7 +137,8 @@ class RefseqMutsBatch(MutsBatch, ABC):
     def cover_per_read(self):
         """ Number of positions covered by each read. """
         return get_cover_per_read(self.coverage_matrix)
-
+    
+    
     @cached_property
     def rels_per_pos(self):
         """ For each relationship, the number of reads at each position
@@ -148,6 +149,7 @@ class RefseqMutsBatch(MutsBatch, ABC):
                                 self.read_indexes,
                                 self.read_weights)
 
+    
     @cached_property
     def rels_per_read(self):
         """ For each relationship, the number of positions in each read
