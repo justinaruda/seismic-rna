@@ -7,7 +7,6 @@ import pandas as pd
 from .uniq import UniqReads
 from ..core.header import index_order_clusts
 from ..core.mu import calc_f_obs_numpy, calc_mu_adj_numpy, calc_prop_adj_numpy
-from ..core.rand import rng
 
 logger = getLogger(__name__)
 
@@ -235,9 +234,6 @@ class EmClustering(object):
 
     def _exp_step(self):
         """ Run the Expectation step of the EM algorithm. """
-        # Import scipy here instead of at the top of this module because
-        # its import is slow enough to impact global startup time.
-        from scipy.special import logsumexp
         # Update the log fraction observed of each cluster.
         self.log_f_obs = np.log(calc_f_obs_numpy(self.sparse_mus,
                                                  self.uniq_reads.min_mut_gap))
@@ -294,7 +290,7 @@ class EmClustering(object):
         # which cluster it came from) is the sum over all clusters of
         # the joint probability of coming from the cluster and having
         # the specific series of bits.
-        self.log_marginals = logsumexp(self.resps, axis=0)
+        self.log_marginals = np.logaddexp.reduce(self.resps, axis=0)
         # Calculate the posterior probability that each bit vector came
         # from each cluster by dividing the joint probability (observing
         # the bit vector and coming from the cluster) by the marginal
@@ -308,8 +304,22 @@ class EmClustering(object):
                                  self.uniq_reads.counts_per_uniq))
         self.log_likes.append(round(log_like, LOG_LIKE_PRECISION))
 
-    def run(self):
-        """ Run the EM clustering algorithm. """
+    def run(self, props_seed: int | None = None, resps_seed: int | None = None):
+        """ Run the EM clustering algorithm.
+
+        Parameters
+        ----------
+        props_seed: int | None = None
+            Random number generator seed for cluster proportions
+        resps_seed: int | None = None
+            Random number generator seed for read responsibilities
+
+        Returns
+        -------
+        EmClustering
+            This instance, in order to permit statements such as
+            ``return [em.run() for em in em_clusterings]``
+        """
         # Import scipy here instead of at the top of this module because
         # its import is slow enough to impact global startup time.
         from scipy.stats import dirichlet
@@ -325,9 +335,11 @@ class EmClustering(object):
         # so that they can explore much of the parameter space).
         # Use the half-open interval (0, 1] because the concentration
         # parameter of a Dirichlet distribution can be 1 but not 0.
-        conc_params = 1. - rng.random(self.order)
+        conc_params = 1. - np.random.default_rng(props_seed).random(self.order)
         # Initialize cluster membership with a Dirichlet distribution.
-        self.resps = dirichlet.rvs(conc_params, self.uniq_reads.num_uniq).T
+        self.resps = dirichlet.rvs(alpha=conc_params,
+                                   size=self.uniq_reads.num_uniq,
+                                   random_state=resps_seed).T
         # Run EM until the log likelihood converges or the number of
         # iterations reaches max_iter, whichever happens first.
         self.converged = False
