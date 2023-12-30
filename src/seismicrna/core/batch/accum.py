@@ -86,7 +86,8 @@ def accumulate(batches: Iterable[RefseqMutsBatch],
                 fits_per_read_per_batch[-1].loc[:, column] = fpr.values
                 if info_per_read_per_batch is not None:
                     info_per_read_per_batch[-1].loc[:, column] = ipr.values
-        
+
+
     def get_data_per_read(data_per_read_per_batch: pd.DataFrame | None):
         if data_per_read_per_batch is not None:
             if data_per_read_per_batch:
@@ -120,7 +121,7 @@ def accum_per_pos(batches: Iterable[RefseqMutsBatch],
 
 
 def accum_fits(batches: Iterable[RefseqMutsBatch],
-               refseq: DNA,
+               refseq: DNA, 
                pos_nums: np.ndarray,
                patterns: dict[str, RelPattern],
                max_order: int = 0,

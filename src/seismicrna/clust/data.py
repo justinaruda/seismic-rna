@@ -10,7 +10,9 @@ from ..core.data import (BatchedLoadedDataset,
 from ..core.header import index_orders_clusts
 from ..core.report import NumClustsF
 from ..mask.batch import MaskMutsBatch
-from ..mask.data import MaskMerger
+from ..mask.data import MaskMerger, MaskLoader
+from ..mask.report import MaskReport
+from ..relate.data import RelateLoader
 
 logger = getLogger(__name__)
 

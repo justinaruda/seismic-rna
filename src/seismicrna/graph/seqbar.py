@@ -32,7 +32,8 @@ from ..table.load import (PosTableLoader,
                           RelPosTableLoader,
                           MaskPosTableLoader,
                           ClustPosTableLoader,
-                          find_tables)
+                          find_tables) 
+from ..table.write import ClustPosTableWriter
 
 logger = getLogger(__name__)
 
@@ -192,7 +193,8 @@ class ClusterSeqBarGraph(SeqBarGraph, ABC):
 
     @classmethod
     def sources(cls):
-        return {ClustPosTableLoader: "Clustered"}
+        return {ClustPosTableLoader: "Clustered",
+                ClustPosTableWriter: "Clustered"}
 
     @property
     def subject(self):
