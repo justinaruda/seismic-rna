@@ -215,8 +215,8 @@ opt_barcode_start = Option(
     default=0,
     help="index of start of barcode")
 
-opt_barcode_length = Option(
-    ("--barcode-length",),
+opt_barcode_end = Option(
+    ("--barcode-end",),
     type=int,
     default=0,
     help="length of barcode")
@@ -796,6 +796,13 @@ opt_refs_file = Option(
     type=Path(dir_okay=False),
     default="",
     help="CSV file of metadata for each reference"
+)
+
+opt_all_pos = Option(
+    ("--all-pos/--unmasked-pos",),
+    type=bool,
+    default=False,
+    help="Export all positions (not just unmasked positions)"
 )
 
 # Logging options

@@ -143,7 +143,7 @@ class RelMasker(object):
         """ Positions masked for having a G or U base. """
         return (self.section.get_mask(self.section.MASK_GU)
                 if self.exclude_gu
-                else np.ndarray([], dtype=int))
+                else np.array([], dtype=int))
 
     @property
     def pos_polya(self):
@@ -262,7 +262,7 @@ class RelMasker(object):
                                  read_nums=batch.read_nums)
         _, checksum = batch_file.save(self.top,
                                       brotli_level=self.brotli_level,
-                                      overwrite=True)
+                                      force=True)
         self.checksums.append(checksum)
         return batch
 
