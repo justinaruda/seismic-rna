@@ -50,7 +50,10 @@ ACTION_CLUST = "clustered"
 LINKER = "__and__"
 
 
-def make_index(header: Header, order: int | None, clust: int | None):
+def make_index(header: Header,
+               order: int | None,
+               clust: int | None,
+               order_clust_list: list[tuple[int, int]] | None = None):
     """ Make an index for the rows or columns of a graph. """
     if header.max_order == 0:
         # If there are no clusters, then no clusters must be selected.
@@ -59,7 +62,9 @@ def make_index(header: Header, order: int | None, clust: int | None):
         return header.clusts
     # If there are any relationship names in the index, then drop them
     # and then select the order(s) and cluster(s) for the index.
-    return header.modified(rels=()).select(order=order, clust=clust)
+    return header.modified(rels=()).select(order=order,
+                                           clust=clust,
+                                           order_clust_list=order_clust_list)
 
 
 def _index_size(index: pd.Index | None):
@@ -305,6 +310,7 @@ class GraphBase(ABC):
 
     @property
     def _subplots_params(self):
+        print(self.nrows, self.ncols, self.row_titles, self.col_titles)
         return dict(rows=self.nrows,
                     cols=self.ncols,
                     row_titles=self.row_titles,
@@ -353,6 +359,7 @@ class GraphBase(ABC):
     def write_html(self, force: bool):
         """ Write the graph to an HTML file. """
         file = self.get_path(path.HTML_EXT)
+        print(file)
         if need_write(file, force):
             self.figure.write_html(file)
         return file

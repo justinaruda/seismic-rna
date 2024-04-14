@@ -1235,6 +1235,7 @@ def calc_p_ends_observed(npos: int,
             raise ValueError(
                 f"All weights must be ≥ 0, but got {weights[weights < 0.]}"
             )
+
     # Call the compiled function.
     return _calc_p_ends_observed(npos, end5s, end3s, weights)
 

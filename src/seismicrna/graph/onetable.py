@@ -22,11 +22,13 @@ class OneTableGraph(GraphBase, ABC):
                  table: Table | PosTable,
                  order: int | None,
                  clust: int | None,
+                 order_clust_list: list[tuple[int, int]] | None,
                  **kwargs):
         super().__init__(**kwargs)
         self.table = table
         self.order = order
         self.clust = clust
+        self.order_clust_list = order_clust_list
 
     @property
     def sample(self):
@@ -51,7 +53,10 @@ class OneTableGraph(GraphBase, ABC):
 
     @cached_property
     def row_index(self):
-        return make_index(self.table.header, self.order, self.clust)
+        return make_index(self.table.header,
+                          self.order,
+                          self.clust,
+                          self.order_clust_list)
 
     @property
     def col_index(self):

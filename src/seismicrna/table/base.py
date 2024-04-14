@@ -250,6 +250,7 @@ class RelTypeTable(Table, ABC):
                     **kwargs) -> pd.Series | pd.DataFrame:
         """ Fetch ratios of one or more columns. """
         # Fetch the data for the numerator.
+        print(kwargs)
         numer = self._fetch_data(self.header.select(**kwargs), exclude_masked)
         # Fetch the data for the denominator.
         denom = self._fetch_data(_get_denom_cols(numer.columns), exclude_masked)
