@@ -108,12 +108,13 @@ class Deconvolver:
                 for cluster_name, cluster_num in self.mapping_indexes.items()}
 
     @property
-    def cluster_names(self):
+    def order_cluster(self):
         index = list(self.mapping_as_clusters.keys())
         values = list(self.mapping_as_clusters.values())
         return pd.Series(values, index=index)
     
-    def graph(self, order=None, clust=None, order_clust_list=None, force=True):
+    def graph(self, order=None, clust=None, deconvolved_clusters=None, force=True):
+        order_clust_list = list(self.order_cluster[deconvolved_clusters])
         self.graph_obj = OneRelDeconvolvedProfileGraph(order=order, 
                                             clust=clust, 
                                             order_clust_list=order_clust_list,
@@ -126,14 +127,14 @@ class Deconvolver:
                                             out_dir=Path("out"))
         self.graph_obj.write_html(force=force)
         
-    def graph_roll_corr(self, 
-                        order1=None, 
-                        clust1=None, 
-                        order2=None, 
-                        clust2=None, 
+    def graph_roll_corr(self,
+                        deconvolved_clust_1,
+                        deconvolved_clust_2,
                         quantile=0., 
                         metric="pcc",
                         force=True):
+        order1, clust1 = self.order_cluster[deconvolved_clust_1]
+        order2, clust2 = self.order_cluster[deconvolved_clust_2]
         self.graph_obj = RollingCorrelationGraph(metric=metric,
                                                  table1=self.table_writer, 
                                                  order1= order1, 
