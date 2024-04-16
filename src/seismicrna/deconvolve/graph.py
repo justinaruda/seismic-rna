@@ -7,6 +7,7 @@ Created on Thu Apr 11 16:48:06 2024
 """
 
 from seismicrna.graph.profile import OneRelProfileGraph
+from seismicrna.graph.corroll import RollingCorrelationGraph
 import pandas as pd
 from typing import Iterable
 from collections import Counter
@@ -63,12 +64,41 @@ def _index_titles(index: pd.Index | None,
                 if index is not None
                 else None)
 
+class DeconvolvedRollingCorrelationGraph(RollingCorrelationGraph):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        
+    @cached_property
+    def data1(self):
+        """ Data from table 1. """
+        return self._fetch_data(self.table1,
+                                order=self.order1,
+                                clust=self.clust1,
+                                exclude_masked=True)
+    @cached_property
+    def data2(self):
+        """ Data from table 2. """
+        return self._fetch_data(self.table2,
+                                order=self.order2,
+                                clust=self.clust2,
+                                exclude_masked=True)
+    
+
 class OneRelDeconvolvedProfileGraph(OneRelProfileGraph):
     """ Bar graph with one relationship per position. """
     def __init__(self, *, mapping: dict, clusters: Iterable[tuple[int, int]], **kwargs):
         self.mapping = mapping
         self.clusters = clusters
         super().__init__(**kwargs)
+        
+    @cached_property
+    def data(self):
+        return self._fetch_data(self.table,
+                                order=self.order,
+                                clust=self.clust,
+                                order_clust_list=self.order_clust_list,
+                                exclude_masked = True)
+        
         
     @cached_property
     def row_titles(self):

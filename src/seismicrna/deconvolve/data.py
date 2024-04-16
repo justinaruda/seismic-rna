@@ -15,6 +15,8 @@ from ..graph.corroll import RollingCorrelationGraph
 
 from .report import DeconvolveReport
 
+from ..cluster.uniq import UniqReads, get_uniq_reads
+
 from .graph import OneRelDeconvolvedProfileGraph
 from ..graph.corroll import RollingCorrelationGraph
 
@@ -36,7 +38,8 @@ class Deconvolver:
                  mut_val, 
                  pattern, 
                  min_reads=1000, 
-                 strict=False):
+                 strict=False,
+                 norm_edits=True):
         self.deconvolve_dataset = MaskMutsDataset.load(deconvolve_report)
         self.edited_dataset = MaskMutsDataset.load(edited_report)
         self.background_dataset = MaskMutsDataset.load(background_report)
@@ -49,6 +52,7 @@ class Deconvolver:
         self.ref = self.deconvolve_dataset.ref
         self.sect = self.deconvolve_dataset.sect
         self.n_batches = 3
+        self.norm_edits = norm_edits
 
     def _get_deconvolve_merger(self):
         self.deconvolve_merger = DeconvolveMerger(self.positions, 
@@ -57,7 +61,9 @@ class Deconvolver:
                                                   self.deconvolve_dataset, 
                                                   None, 
                                                   min_reads=self.min_reads, 
-                                                  strict=self.strict)
+                                                  strict=self.strict,
+                                                  uniq_reads=self.uniq_reads,
+                                                  norm_edits=self.norm_edits)
 
     @cached_property
     def edited_table(self):
@@ -87,8 +93,16 @@ class Deconvolver:
 
     @cached_property
     def table_writer(self):
-        return ClustPosTableWriter(self.cluster_tabulator)
-    
+        table_writer = ClustPosTableWriter(self.cluster_tabulator)
+        gu_mask = (self.cluster_tabulator.table_per_pos.index.get_level_values("Base") == "G") | (self.cluster_tabulator.table_per_pos.index.get_level_values("Base") == "T")
+        new_mask = table_writer.unmasked_int != self.positions.ravel()
+        new_mask = new_mask & ~gu_mask
+        table_writer.unmasked = table_writer.unmasked[new_mask]
+        table_writer.unmasked_bool = table_writer.unmasked_bool[new_mask]
+        table_writer.unmasked_int = table_writer.unmasked_int[new_mask]
+        table_writer.masked_bool[~new_mask] = True
+        return table_writer
+
     @property
     def mapping_indexes(self):
         mapping_dict = {"pop_average": 0}
@@ -101,7 +115,7 @@ class Deconvolver:
             mapping_dict[pos_str_unedited] = cluster_index + 1
             cluster_index += 2
         return mapping_dict
-    
+
     @property 
     def mapping_as_clusters(self):
         return {cluster_name: self.deconvolve_merger.clusters[cluster_num] 
@@ -112,7 +126,7 @@ class Deconvolver:
         index = list(self.mapping_as_clusters.keys())
         values = list(self.mapping_as_clusters.values())
         return pd.Series(values, index=index)
-    
+
     def graph(self, order=None, clust=None, deconvolved_clusters=None, force=True):
         order_clust_list = list(self.order_cluster[deconvolved_clusters])
         self.graph_obj = OneRelDeconvolvedProfileGraph(order=order, 
@@ -120,13 +134,13 @@ class Deconvolver:
                                             order_clust_list=order_clust_list,
                                             mapping = self.mapping_as_clusters,
                                             clusters = self.deconvolve_merger.clusters,
-                                            table=self.table_writer, 
-                                            rel="m", 
-                                            use_ratio=True, 
-                                            quantile=0, 
+                                            table=self.table_writer,
+                                            rel="m",
+                                            use_ratio=True,
+                                            quantile=0,
                                             out_dir=Path("out"))
         self.graph_obj.write_html(force=force)
-        
+
     def graph_roll_corr(self,
                         deconvolved_clust_1,
                         deconvolved_clust_2,
@@ -162,6 +176,8 @@ class Deconvolver:
         return read_count_dict
 
     def deconvolve(self, positions=None, mut_val=None, pattern=None, force_write=True):
+        # When deconvolving new position(s), clear uniq_read cache to allow its recalculation.
+        self.__dict__.pop("uniq_reads", None)
         self.positions = positions if positions is not None else self.positions
         self.mut_val = mut_val if mut_val is not None else self.mut_val
         self.pattern = pattern if pattern is not None else self.pattern
@@ -171,7 +187,25 @@ class Deconvolver:
         self.ended = datetime.now()
         self.report = DeconvolveReport.from_deconvolver(self)
         self.report.save(top=Path("out"), force=True)
-
+    
+    @cached_property
+    def uniq_reads(self):
+        self.section = self.deconvolve_dataset.section
+        a_pos = (np.array(list(self.section.seq)) != "A").nonzero()[0]
+        self.deconvolve_dataset.section.add_mask(mask_pos=a_pos+self.section.coord[0], name="mask_non_a")
+        self.deconvolve_dataset.section.add_mask(mask_pos=self.positions.ravel(), name="mask_deconvolved_pos")
+        only_ag = RelPattern.from_counts(discount=["ac", "at", "ca", "cg", "ct", "ta", "tg", "tc", "ga", "gc", "gt"], count_del=False, count_ins=False)
+        uniq_reads = UniqReads(self.sample,
+                               self.section,
+                               0,
+                               *get_uniq_reads(self.section.unmasked_int, 
+                                               only_ag, 
+                                               self.deconvolve_dataset.iter_batches()))
+        self.deconvolve_dataset.section.remove_mask(name="mask_non_a")
+        self.deconvolve_dataset.section.remove_mask(name="mask_deconvolved_pos")
+        return uniq_reads
+        
+        
 class DeconvolveMerger(ClusterMutsDataset):
     """ Merge deconvolved responsibilities with mutation data. """
 
@@ -181,12 +215,17 @@ class DeconvolveMerger(ClusterMutsDataset):
                  data1, 
                  data2, 
                  min_reads=1000, 
-                 strict=False):
+                 strict=False,
+                 uniq_reads=None,
+                 norm_edits=True):
         self.positions = positions
         self.mut_val = mut_val
         self.strict = strict
         self.accum_pattern = pattern
         self.min_reads = min_reads
+        self.uniq_reads = uniq_reads
+        self.norm_edits = norm_edits
+
         super().__init__(data1, data2)
 
     @classmethod
@@ -234,9 +273,13 @@ class DeconvolveMerger(ClusterMutsDataset):
         val1 = getattr(self.data1, name)
         return val1
     
-    def _get_edited(self, batch, positions):
+    def _assign_uniq(self, batch, read_nums):
+        return self.uniq_reads.batch_to_uniq[batch.batch][read_nums]
+    
+    def _get_edited(self, batch, positions, norm_edits=True):
         mut_val = self.mut_val
         strict = self.strict
+        norm_edits = self.norm_edits
         muts = batch.muts
         edited = None
         unedited = None
@@ -258,18 +301,50 @@ class DeconvolveMerger(ClusterMutsDataset):
                 remove = np.union1d(remove, edited_at_pos)
             edited = np.setdiff1d(edited, remove)
             unedited = np.setdiff1d(unedited, remove)
+
+        uniq_ed, uniq_ed_counts = np.unique(self._assign_uniq(batch, edited), return_counts=True)
+        uniq_uned, uniq_uned_counts = np.unique(self._assign_uniq(batch, unedited), return_counts=True)
+
+        edited_indexes = np.isin(uniq_ed, uniq_uned)
+        unedited_indexes = np.isin(uniq_uned, uniq_ed)
+        min_intersect = np.minimum(uniq_ed_counts[edited_indexes],
+                                   uniq_uned_counts[unedited_indexes])
+
+        if norm_edits:
+            keep_ed = np.zeros_like(edited, dtype=bool)
+            keep_uned = np.zeros_like(unedited, dtype=bool)
+            batch_to_uniq = self.uniq_reads.batch_to_uniq[batch.batch]
+            for read_count, common_uniq_num in zip(min_intersect, uniq_ed[edited_indexes]):
+                
+                mask = batch_to_uniq == common_uniq_num
+                read_nums = batch_to_uniq[mask].index.values
+                
+                ed_uniq = edited[np.isin(edited, read_nums)]
+                uned_uniq = unedited[np.isin(unedited, read_nums)]
+                
+                keep_ed_nums = np.random.choice(ed_uniq, read_count, replace=False)
+                keep_uned_nums = np.random.choice(uned_uniq, read_count, replace=False)
+                
+                keep_ed[np.isin(edited, keep_ed_nums)] = True
+                keep_uned[np.isin(unedited, keep_uned_nums)] = True
+            
+            assert sum(keep_ed) == sum(keep_uned)
+            edited = edited[keep_ed]
+            unedited = unedited[keep_uned]
+
+        
         self.edited = edited
         self.unedited = unedited
-    
-    def _populate_resps(self, 
+
+    def _populate_resps(self,
                         cluster: int, 
                         batch: MaskMutsBatch, 
                         resps: pd.DataFrame):
         if cluster == 1:
             resps.iloc[:,0] = np.array([1]*batch.num_reads)
-        if len(self.edited) < self.min_reads \
-            or len(self.unedited) < self.min_reads:
-            return resps
+        # if len(self.edited) < self.min_reads \
+        #     or len(self.unedited) < self.min_reads:
+        #     return resps
         resps_matrix = np.zeros((batch.num_reads, 2), dtype=int)
         resps_matrix[batch.read_indexes[self.edited], 0] = 1
         resps_matrix[batch.read_indexes[self.unedited], 1] = 1
