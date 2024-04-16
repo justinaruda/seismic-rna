@@ -17,8 +17,8 @@ from .report import DeconvolveReport
 
 from ..cluster.uniq import UniqReads, get_uniq_reads
 
-from .graph import OneRelDeconvolvedProfileGraph
-from ..graph.corroll import RollingCorrelationGraph
+from .graph import OneRelDeconvolvedProfileGraph, DeconvolvedRollingCorrelationGraph
+# from ..graph.corroll import RollingCorrelationGraph
 
 import numpy as np
 import pandas as pd
@@ -52,6 +52,7 @@ class Deconvolver:
         self.ref = self.deconvolve_dataset.ref
         self.sect = self.deconvolve_dataset.sect
         self.n_batches = 3
+        self.section = self.deconvolve_dataset.section
         self.norm_edits = norm_edits
 
     def _get_deconvolve_merger(self):
@@ -93,15 +94,7 @@ class Deconvolver:
 
     @cached_property
     def table_writer(self):
-        table_writer = ClustPosTableWriter(self.cluster_tabulator)
-        gu_mask = (self.cluster_tabulator.table_per_pos.index.get_level_values("Base") == "G") | (self.cluster_tabulator.table_per_pos.index.get_level_values("Base") == "T")
-        new_mask = table_writer.unmasked_int != self.positions.ravel()
-        new_mask = new_mask & ~gu_mask
-        table_writer.unmasked = table_writer.unmasked[new_mask]
-        table_writer.unmasked_bool = table_writer.unmasked_bool[new_mask]
-        table_writer.unmasked_int = table_writer.unmasked_int[new_mask]
-        table_writer.masked_bool[~new_mask] = True
-        return table_writer
+        return ClustPosTableWriter(self.cluster_tabulator)
 
     @property
     def mapping_indexes(self):
@@ -129,16 +122,19 @@ class Deconvolver:
 
     def graph(self, order=None, clust=None, deconvolved_clusters=None, force=True):
         order_clust_list = list(self.order_cluster[deconvolved_clusters])
-        self.graph_obj = OneRelDeconvolvedProfileGraph(order=order, 
-                                            clust=clust, 
-                                            order_clust_list=order_clust_list,
-                                            mapping = self.mapping_as_clusters,
-                                            clusters = self.deconvolve_merger.clusters,
-                                            table=self.table_writer,
-                                            rel="m",
-                                            use_ratio=True,
-                                            quantile=0,
-                                            out_dir=Path("out"))
+        mask_section = self.section.copy()
+        mask_section.add_mask(mask_pos=self.positions.ravel(), name='mask-deconvolve')
+        self.graph_obj = OneRelDeconvolvedProfileGraph(section=mask_section,
+                                                       order=order, 
+                                                       clust=clust, 
+                                                       order_clust_list=order_clust_list,
+                                                       mapping = self.mapping_as_clusters,
+                                                       clusters = self.deconvolve_merger.clusters,
+                                                       table=self.table_writer,
+                                                       rel="m",
+                                                       use_ratio=True,
+                                                       quantile=0,
+                                                       out_dir=Path("out"))
         self.graph_obj.write_html(force=force)
 
     def graph_roll_corr(self,
@@ -147,21 +143,25 @@ class Deconvolver:
                         quantile=0., 
                         metric="pcc",
                         force=True):
+        mask_section = self.section.copy()
+        mask_section.mask_gu()
+        mask_section.add_mask(mask_pos=self.positions.ravel(), name='mask-deconvolve')
         order1, clust1 = self.order_cluster[deconvolved_clust_1]
         order2, clust2 = self.order_cluster[deconvolved_clust_2]
-        self.graph_obj = RollingCorrelationGraph(metric=metric,
-                                                 table1=self.table_writer, 
-                                                 order1= order1, 
-                                                 clust1=clust1, 
-                                                 table2=self.table_writer, 
-                                                 order2=order2, 
-                                                 clust2=clust2, 
-                                                 rel="m", 
-                                                 window=45, 
-                                                 winmin=25, 
-                                                 use_ratio=True, 
-                                                 quantile=quantile, 
-                                                 out_dir=Path("out"))
+        self.graph_obj = DeconvolvedRollingCorrelationGraph(section=mask_section,
+                                                            metric=metric,
+                                                            table1=self.table_writer, 
+                                                            order1= order1, 
+                                                            clust1=clust1, 
+                                                            table2=self.table_writer, 
+                                                            order2=order2, 
+                                                            clust2=clust2, 
+                                                            rel="m", 
+                                                            window=45, 
+                                                            winmin=15, 
+                                                            use_ratio=True, 
+                                                            quantile=quantile, 
+                                                            out_dir=Path("out"))
         self.graph_obj.write_html(force=force)
 
     @property
@@ -176,8 +176,10 @@ class Deconvolver:
         return read_count_dict
 
     def deconvolve(self, positions=None, mut_val=None, pattern=None, force_write=True):
-        # When deconvolving new position(s), clear uniq_read cache to allow its recalculation.
+        # When deconvolving new position(s), clear cache to allow its recalculation.
         self.__dict__.pop("uniq_reads", None)
+        self.__dict__.pop("cluster_tabulator", None)
+        self.__dict__.pop("table_writer", None)
         self.positions = positions if positions is not None else self.positions
         self.mut_val = mut_val if mut_val is not None else self.mut_val
         self.pattern = pattern if pattern is not None else self.pattern
@@ -190,10 +192,9 @@ class Deconvolver:
     
     @cached_property
     def uniq_reads(self):
-        self.section = self.deconvolve_dataset.section
         a_pos = (np.array(list(self.section.seq)) != "A").nonzero()[0]
-        self.deconvolve_dataset.section.add_mask(mask_pos=a_pos+self.section.coord[0], name="mask_non_a")
-        self.deconvolve_dataset.section.add_mask(mask_pos=self.positions.ravel(), name="mask_deconvolved_pos")
+        self.section.add_mask(mask_pos=a_pos+self.section.coord[0], name="mask-non-a")
+        self.section.add_mask(mask_pos=self.positions.ravel(), name="mask-deconvolved")
         only_ag = RelPattern.from_counts(discount=["ac", "at", "ca", "cg", "ct", "ta", "tg", "tc", "ga", "gc", "gt"], count_del=False, count_ins=False)
         uniq_reads = UniqReads(self.sample,
                                self.section,
@@ -201,8 +202,8 @@ class Deconvolver:
                                *get_uniq_reads(self.section.unmasked_int, 
                                                only_ag, 
                                                self.deconvolve_dataset.iter_batches()))
-        self.deconvolve_dataset.section.remove_mask(name="mask_non_a")
-        self.deconvolve_dataset.section.remove_mask(name="mask_deconvolved_pos")
+        self.section.remove_mask(name="mask-non-a")
+        self.section.remove_mask(name="mask-deconvolved")
         return uniq_reads
         
         

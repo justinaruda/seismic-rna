@@ -65,8 +65,10 @@ def _index_titles(index: pd.Index | None,
                 else None)
 
 class DeconvolvedRollingCorrelationGraph(RollingCorrelationGraph):
-    def __init__(self, **kwargs):
+    def __init__(self, section, **kwargs):
         super().__init__(**kwargs)
+        self.table1.section = section
+        self.table2.section = section
         
     @cached_property
     def data1(self):
@@ -86,22 +88,23 @@ class DeconvolvedRollingCorrelationGraph(RollingCorrelationGraph):
 
 class OneRelDeconvolvedProfileGraph(OneRelProfileGraph):
     """ Bar graph with one relationship per position. """
-    def __init__(self, *, mapping: dict, clusters: Iterable[tuple[int, int]], **kwargs):
+    def __init__(self, *, mapping: dict, clusters: Iterable[tuple[int, int]], section, **kwargs):
         self.mapping = mapping
         self.clusters = clusters
+        self.section = section
         super().__init__(**kwargs)
         
     @cached_property
     def data(self):
+        self.table.section = self.section
         return self._fetch_data(self.table,
                                 order=self.order,
                                 clust=self.clust,
-                                order_clust_list=self.order_clust_list,
-                                exclude_masked = True)
+                                exclude_masked = True,
+                                order_clust_list=self.order_clust_list)
         
         
     @cached_property
     def row_titles(self):
         """ Titles of the rows. """
         return _index_titles(self.row_index, self.mapping, self.clusters)
-        
