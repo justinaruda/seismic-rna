@@ -52,6 +52,10 @@ class ClusterMutsDataset(ChainedMutsDataset):
     @property
     def pattern(self):
         return self.data1.pattern
+    
+    @pattern.setter
+    def pattern(self, value):
+        self._pattern = value
 
     @cached_property
     def section(self):

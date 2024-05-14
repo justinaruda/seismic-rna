@@ -12,12 +12,14 @@ from ..table.write import MaskPosTableWriter, ClustPosTableWriter
 
 from ..graph.profile import OneRelProfileGraph
 from ..graph.corroll import RollingCorrelationGraph
+from ..graph.delprof import DeltaProfileGraph
 
 from .report import DeconvolveReport
 
 from ..cluster.uniq import UniqReads, get_uniq_reads
 
 from .graph import OneRelDeconvolvedProfileGraph, DeconvolvedRollingCorrelationGraph
+
 # from ..graph.corroll import RollingCorrelationGraph
 
 import numpy as np
@@ -162,6 +164,28 @@ class Deconvolver:
                                                             use_ratio=True, 
                                                             quantile=quantile, 
                                                             out_dir=Path("out"))
+        self.graph_obj.write_html(force=force)
+    
+    def graph_delprof(self,
+                        deconvolved_clust_1,
+                        deconvolved_clust_2,
+                        quantile=0.95,
+                        force=True):
+        mask_section = self.section.copy()
+        mask_section.add_mask(mask_pos=self.positions.ravel(), name='mask-deconvolve')
+        self.table_writer.section = mask_section
+        order1, clust1 = self.order_cluster[deconvolved_clust_1]
+        order2, clust2 = self.order_cluster[deconvolved_clust_2]
+        self.graph_obj = DeltaProfileGraph(table1=self.table_writer, 
+                                           order1= order1, 
+                                           clust1=clust1, 
+                                           table2=self.table_writer, 
+                                           order2=order2, 
+                                           clust2=clust2, 
+                                           rel="m", 
+                                           use_ratio=True, 
+                                           quantile=quantile, 
+                                           out_dir=Path("out"))
         self.graph_obj.write_html(force=force)
 
     @property
