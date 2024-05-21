@@ -63,11 +63,44 @@ def choose_clusters(p_clust: pd.Series, n_reads: int):
 
 def simulate_p_mut(refseq: DNA, ncls: int):
     """ Simulate mutation rates. """
-    return pd.DataFrame(
-        rng.random((len(refseq), ncls)),
+    all_muts = pd.DataFrame(
+        rng.beta(1.5,8.5,(len(refseq), ncls)),
         seq_pos_to_index(refseq, list_naturals(len(refseq)), 1),
         list_naturals(ncls)
     )
+    similar = np.random.choice(all_muts.index, round(len(all_muts.index)*0.9), replace=False)
+    offsets = rng.random(len(similar))*0.1*np.random.choice([-1,1], len(similar))
+    all_muts.loc[similar, all_muts.columns[1]] = all_muts.loc[similar, all_muts.columns[0]] + offsets
+    all_muts[all_muts < 0] = 0.01
+    return all_muts
+
+def simulate_p_edit(refseq: DNA, ncls: int):
+    """ Simulate edit rates. """
+    all_muts = pd.DataFrame(
+        rng.beta(0.5, 0.5,(len(refseq), ncls)),
+        seq_pos_to_index(refseq, list_naturals(len(refseq)), 1),
+        list_naturals(ncls)
+    )
+    all_a_1 = all_muts.index.get_level_values("Base") == "A"
+    all_a_2 = all_muts.index.get_level_values("Base") == "A"
+    a_indices, = np.where(all_a_1)
+    ed = np.random.choice(a_indices, round(len(a_indices)*0.05), replace=False)
+    ed_1 = np.random.choice(a_indices, round(len(a_indices)*0.025), replace=False)
+    ed_2 = np.random.choice(a_indices, round(len(a_indices)*0.025), replace=False)
+    ed_1 = np.union1d(ed, ed_1)
+    ed_2 = np.union1d(ed, ed_2)
+    ed_1_bool = np.ones_like(all_muts.index, dtype=bool)
+    ed_2_bool = np.ones_like(all_muts.index, dtype=bool)
+    ed_1_bool[ed_1] = 0
+    ed_2_bool[ed_2] = 0
+    all_a_1[~ed_1_bool] = 0
+    all_a_2[~ed_2_bool] = 0
+    non_a = all_muts.index.get_level_values("Base") != "A"
+    uned_1 = non_a | all_a_1
+    uned_2 = non_a | all_a_2
+    all_muts.loc[uned_1, all_muts.columns[0]] = 0
+    all_muts.loc[uned_2, all_muts.columns[1]] = 0
+    return all_muts
 
 
 def simulate_p_ends(npos: int, min_size: int = 1, max_size: int | None = None):
@@ -123,6 +156,7 @@ def simulate_relate_batch(sample: str,
                           batch: int,
                           p_mut: pd.DataFrame,
                           p_ends: pd.Series,
+                          p_edit: pd.DataFrame,
                           cluster_choices: np.ndarray):
     """ Simulate a relate batch. """
     # Validate the mutation rates.
@@ -161,17 +195,34 @@ def simulate_relate_batch(sample: str,
                                        pos <= end3_choices)]
         # Simulate mutations for each cluster.
         for cluster in clusters:
-            # Determine which reads can be mutated.
-            read_options = np.intersect1d(in_ends,
-                                          in_cluster[cluster],
-                                          assume_unique=True)
+            if p_edit.at[(pos, base), cluster] > 0:
+                # Determine which reads can be mutated.
+                read_options = np.intersect1d(in_ends,
+                                              in_cluster[cluster],
+                                              assume_unique=True)
+                # Simulate the number of reads with edits.
+                n_muts = rng.binomial(get_length(read_options),
+                                      p_edit.at[(pos, base), cluster])
+                # Choose reads with edits at the position.
+                edit_read_choices = rng.choice(read_options, n_muts, replace=False)
+                # Record the reads with each type of substitution.
+                muts[pos][SUB_G] = np.hstack([muts[pos][SUB_G],
+                                              edit_read_choices])
+                read_options = np.setdiff1d(read_options,
+                                            edit_read_choices,
+                                            assume_unique=True)
+            else:
+                read_options = np.intersect1d(in_ends,
+                                              in_cluster[cluster],
+                                              assume_unique=True)
+
             # Simulate the number of reads with mutations.
             n_muts = rng.binomial(get_length(read_options),
                                   p_mut.at[(pos, base), cluster])
             # Choose reads with mutations at the position.
             read_choices = rng.choice(read_options, n_muts, replace=False)
             # Choose a type of subsitution for each mutated read.
-            sub_choices = rng.choice(pos_sub_options, read_choices.size)
+            sub_choices = rng.choice(pos_sub_options, read_choices.size, p=np.array([2/7,1/7,4/7]))
             # Record the reads with each type of substitution.
             for sub in pos_sub_options:
                 muts[pos][sub] = np.hstack([muts[pos][sub],
@@ -191,14 +242,16 @@ def simulate_relate_batch(sample: str,
 def simulate_batch(sample: str,
                    ref: str,
                    batch: int,
+                   n_reads: int,
                    p_mut: pd.DataFrame,
                    p_ends: pd.Series,
+                   p_edit: pd.DataFrame,
                    cluster_choices: np.ndarray):
     qnames_batch = simulate_qnames_batch(
-        sample, ref, batch, get_length(cluster_choices)
+        sample, ref, batch, n_reads
     )
     relate_batch = simulate_relate_batch(
-        sample, ref, batch, p_mut, p_ends, cluster_choices
+        sample, ref, batch, p_mut, p_ends, p_edit, cluster_choices
     )
     return qnames_batch, relate_batch
 

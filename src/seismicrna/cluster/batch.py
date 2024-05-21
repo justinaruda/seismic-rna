@@ -24,6 +24,8 @@ class ClusterMutsBatch(ClusterReadBatch, PartialMutsBatch, RefseqMutsBatch):
 
     @property
     def read_weights(self):
+        self.resps.loc[self.masked_reads_bool] = 0
+        self.resps.loc[:, self.resps.columns[0]] = 1
         return self.resps
 
 ########################################################################

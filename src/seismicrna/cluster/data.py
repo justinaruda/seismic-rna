@@ -49,13 +49,17 @@ class ClusterMutsDataset(ChainedMutsDataset):
     def min_mut_gap(self):
         return getattr(self.data1, "min_mut_gap")
 
+    @min_mut_gap.setter
+    def min_mut_gap(self, min_mut_gap):
+        self.data1.min_mut_gap = min_mut_gap
+
     @property
     def pattern(self):
         return self.data1.pattern
-    
+
     @pattern.setter
-    def pattern(self, value):
-        self._pattern = value
+    def pattern(self, pattern):
+        self.data1.pattern = pattern
 
     @cached_property
     def section(self):
@@ -69,6 +73,10 @@ class ClusterMutsDataset(ChainedMutsDataset):
     def clusters(self):
         return index_orders_clusts(self.max_order)
 
+    @cached_property
+    def masked_read_nums(self):
+        return dict()
+
     def _chain(self, batch1: MaskMutsBatch, batch2: ClusterBatchIO):
         return ClusterMutsBatch(batch=batch1.batch,
                                 refseq=batch1.refseq,
@@ -78,6 +86,7 @@ class ClusterMutsDataset(ChainedMutsDataset):
                                 mid3s=batch1.mid3s,
                                 end3s=batch1.end3s,
                                 resps=batch2.resps,
+                                masked_read_nums=self.masked_read_nums.get(batch1.batch),
                                 sanitize=False)
 
 

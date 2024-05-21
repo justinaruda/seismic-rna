@@ -21,7 +21,7 @@ class MaskReadDataset(LoadedDataset):
     def get_batch_type(cls):
         return MaskBatchIO
 
-    @property
+    @cached_property
     def min_mut_gap(self):
         return self.report.get_field(MinMutGapF)
 
@@ -52,9 +52,19 @@ class MaskMutsDataset(ChainedMutsDataset):
     def min_mut_gap(self):
         return getattr(self.data2, "min_mut_gap")
 
+    @min_mut_gap.setter
+    def min_mut_gap(self, min_mut_gap):
+        self.data2.min_mut_gap = min_mut_gap
+
     @property
     def pattern(self):
         return self.data2.pattern
+
+    @pattern.setter
+    def pattern(self, pattern):
+        if type(pattern) == type(RelPattern):
+            raise ValueError(f"{repr(pattern)} is not a valid RelPattern")
+        self.data2.pattern = pattern
 
     @cached_property
     def section(self):

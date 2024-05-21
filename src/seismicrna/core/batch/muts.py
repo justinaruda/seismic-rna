@@ -38,6 +38,7 @@ class MutsBatch(ReadBatch, ABC):
                  mid5s: list[int] | np.ndarray | None,
                  mid3s: list[int] | np.ndarray | None,
                  end3s: list[int] | np.ndarray,
+                 masked_read_nums: list[int] | None = None,
                  sanitize: bool = True,
                  **kwargs):
         super().__init__(**kwargs)
@@ -57,6 +58,8 @@ class MutsBatch(ReadBatch, ABC):
         self._mid5s = mid5s
         self._mid3s = mid3s
         self.end3s = end3s
+        if masked_read_nums is not None:
+            self.masked_read_nums = np.array(masked_read_nums, dtype=int)
         # Validate and store the mutations.
         self.muts = {pos: {REL_TYPE(rel): np.asarray(reads, self.read_dtype)
                            for rel, reads in muts[pos].items()}
@@ -95,7 +98,12 @@ class MutsBatch(ReadBatch, ABC):
     @property
     def read_weights(self) -> pd.DataFrame | None:
         """ Weights for each read when computing counts. """
-        return None
+        read_weights = None
+        if self.masked_reads_bool.any():
+            read_weights = np.ones(self.num_reads)
+            read_weights[self.masked_reads_bool] = 0
+            read_weights = pd.DataFrame(read_weights)
+        return read_weights
 
     @cached_property
     def contiguous_reads(self) -> np.ndarray:
