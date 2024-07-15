@@ -715,7 +715,8 @@ class ProfilePosTable(PosTable, ABC):
                                                            rel=rel,
                                                            order=o,
                                                            clust=c,
-                                                           squeeze=True))
+                                                           squeeze=True,
+                                                           exclude_masked=True))
 
 
 class MaskPosTable(MaskTable, ProfilePosTable, ABC):

@@ -16,6 +16,9 @@ CLUST_NAME = "Cluster"
 AVERAGE_PREFIX = "average"
 CLUSTER_PREFIX = "cluster"
 
+# Header selection keys
+ORDER_CLUST_KEY = "order_clust_list"
+
 
 def validate_order_clust(order: int, clust: int, allow_zero: bool = False):
     """ Validate a pair of order and cluster numbers.
@@ -355,6 +358,23 @@ class Header(ABC):
         """ Select and return items from the header as an Index. """
         index = self.index
         selected = np.ones(index.size, dtype=bool)
+        # Handle combinations of order and clust specified in a list of tuples.
+        if value := kwargs.pop(ORDER_CLUST_KEY, None):
+            assert isinstance(value, list),\
+            f"{ORDER_CLUST_KEY} must be a list of tuples."
+            order_name = self.levels().get('order')
+            clust_name = self.levels().get('clust')
+            combo_selected = np.zeros(index.size, dtype=bool)
+            for order, clust in value:
+                # Find rows that match each specified combination.
+                order_match = index.get_level_values(order_name) == order
+                clust_match = index.get_level_values(clust_name) == clust
+                combo_selected |= (order_match & clust_match)
+            if np.all(selected):
+                selected &= combo_selected
+            else:
+                selected |= combo_selected
+        # Handle relationship selection.
         for key, name in self.levels().items():
             if value := kwargs.pop(key, None):
                 level_values = index.get_level_values(name)
@@ -365,7 +385,7 @@ class Header(ABC):
                                      f"but got {repr(value)}")
                 selected &= equal_values
         # Check if any extra keyword arguments were given; allow extra
-        # arguments only if their values are falsy (e.g. None, 0).
+        # arguments only if their values are falsy (e.g. None, 0).         
         if extras := {k: v for k, v in kwargs.items() if v}:
             raise TypeError("Unexpected keyword arguments for "
                             f"{type(self).__name__}: {extras}")

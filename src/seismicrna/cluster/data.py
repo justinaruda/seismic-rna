@@ -87,6 +87,10 @@ class ClusterMutsDataset(ClusterDataset, ArrowDataset, UnbiasDataset):
     def min_mut_gap(self):
         return getattr(self.data1, "min_mut_gap")
 
+    @min_mut_gap.setter
+    def min_mut_gap(self, min_mut_gap):
+        self.data1.min_mut_gap = min_mut_gap
+
     @property
     def quick_unbias(self):
         return getattr(self.data1, "quick_unbias")
@@ -94,18 +98,35 @@ class ClusterMutsDataset(ClusterDataset, ArrowDataset, UnbiasDataset):
     @property
     def quick_unbias_thresh(self):
         return getattr(self.data1, "quick_unbias_thresh")
+    
+    @pattern.setter
+    def pattern(self, pattern):
+        self.data1.pattern = pattern
+
+    @cached_property
+    def section(self):
+        return self.data1.section
 
     @property
     def max_order(self):
         return getattr(self.data2, "max_order")
 
-    def _integrate(self, batch1: MaskMutsBatch, batch2: ClusterBatchIO):
+    @cached_property
+    def clusters(self):
+        return index_orders_clusts(self.max_order)
+
+    @cached_property
+    def masked_read_nums(self):
+        return dict()
+
+    def _integrate(self, batch1: MaskMutsBatch, batch2: ClusterBatchIO):    
         return ClusterMutsBatch(batch=batch1.batch,
                                 section=batch1.section,
                                 seg_end5s=batch1.seg_end5s,
                                 seg_end3s=batch1.seg_end3s,
                                 muts=batch1.muts,
                                 resps=batch2.resps,
+                                masked_read_nums=self.masked_read_nums.get(batch1.batch),
                                 sanitize=False)
 
 

@@ -38,7 +38,8 @@ class ProfileGraph(OneTableGraph, ColorMapGraph, ABC):
     def data(self):
         return self._fetch_data(self.table,
                                 order=self.order,
-                                clust=self.clust)
+                                clust=self.clust,
+                                order_clust_list=self.order_clust_list)
 
     @cached_property
     def data_header(self):

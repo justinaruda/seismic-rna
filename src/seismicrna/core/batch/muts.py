@@ -158,10 +158,12 @@ class MutsBatch(EndCoords, ReadBatch, ABC):
 
     def __init__(self, *,
                  section: Section,
+                 masked_read_nums: list[int] | None = None,
                  sanitize: bool = True,
                  muts: dict[int, dict[int, list[int] | np.ndarray]],
                  **kwargs):
         super().__init__(section=section, sanitize=sanitize, **kwargs)
+        
         # Validate and store the mutations.
         self._muts = sanitize_muts(muts, section, self.read_dtype, sanitize)
 
@@ -179,6 +181,12 @@ class MutsBatch(EndCoords, ReadBatch, ABC):
     @abstractmethod
     def read_weights(self) -> pd.DataFrame | None:
         """ Weights for each read when computing counts. """
+        read_weights = None
+        if self.masked_reads_bool.any():
+            read_weights = np.ones(self.num_reads)
+            read_weights[self.masked_reads_bool] = 0
+            read_weights = pd.DataFrame(read_weights)
+        return read_weights
 
     @cached_property
     def read_end_counts(self):

@@ -521,6 +521,10 @@ FoldMinFreeEnergyF = OptionField(opt_fold_mfe)
 FoldMaxStructsF = OptionField(opt_fold_max)
 FoldPercent = OptionField(opt_fold_percent)
 
+# Deconvolve fields
+
+DeconvolveClusterMappingF = Field("deconvolution_mapping", "Deconvolution to Cluster Mapping", dict, iconv=iconv_dict_str_int)
+DeconvolveReadCountsF = Field("deconvolve_read_counts", "Reads per Cluster", dict, iconv=iconv_dict_str_int)
 
 # Field managing functions
 
