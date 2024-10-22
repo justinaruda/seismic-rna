@@ -17,12 +17,7 @@ AVERAGE_PREFIX = "average"
 CLUSTER_PREFIX = "cluster"
 
 # Header selection keys
-<<<<<<< HEAD
-ORDER_CLUST_KEY = "order_clust_list"
-
-=======
 K_CLUST_KEY = "k_clust_list"
->>>>>>> upstream/0.22.0
 
 
 def validate_k_clust(k: int, clust: int):

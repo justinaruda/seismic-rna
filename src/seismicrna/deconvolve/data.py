@@ -2,13 +2,13 @@ from functools import cached_property, cache
 
 from ..cluster.batch import ClusterMutsBatch
 from ..cluster.data import ClusterMutsDataset
-from ..core.header import index_orders_clusts
+from ..core.header import list_ks_clusts
 from ..mask.batch import MaskMutsBatch
 from ..mask.data import MaskReadDataset, MaskMutsDataset
 from ..core.rel.pattern import RelPattern
 
-from ..table.calc import MaskTabulator, ClustTabulator
-from ..table.write import MaskPosTableWriter, ClustPosTableWriter
+from ..mask.table import MaskTabulator, MaskPosTableWriter
+from ..cluster.table import ClusterTabulator, ClusterPosTableWriter
 
 from ..graph.profile import OneRelProfileGraph
 from ..graph.corroll import RollingCorrelationGraph
@@ -88,7 +88,7 @@ class Deconvolver:
 
     @cached_property
     def cluster_tabulator(self):
-        return ClustTabulator(self.deconvolve_merger)
+        return ClusterTabulator(self.deconvolve_merger)
 
     @cached_property
     def deconvolve_tabulator(self):
@@ -96,7 +96,7 @@ class Deconvolver:
 
     @cached_property
     def table_writer(self):
-        return ClustPosTableWriter(self.cluster_tabulator)
+        return ClusterPosTableWriter(self.cluster_tabulator)
 
     @property
     def mapping_indexes(self):
@@ -209,7 +209,7 @@ class Deconvolver:
         self.pattern = pattern if pattern is not None else self.pattern
         self._get_deconvolve_merger()
         self.began = datetime.now()
-        ClustPosTableWriter(self.cluster_tabulator).write(force=force_write)
+        ClusterPosTableWriter(self.cluster_tabulator).write(force=force_write)
         self.ended = datetime.now()
         self.report = DeconvolveReport.from_deconvolver(self)
         self.report.save(top=Path("out"), force=True)
@@ -292,7 +292,7 @@ class DeconvolveMerger(ClusterMutsDataset):
     
     @cached_property
     def clusters(self):
-        return index_orders_clusts(self.max_order)
+        return list_ks_clusts(self.max_order)
     
     def _get_data_attr(self, name: str):
         val1 = getattr(self.data1, name)
