@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from collections import Counter
-from functools import cached_property, partial
-from itertools import chain, product
+from functools import cached_property
+from itertools import chain
 from typing import Iterable
 
 import numpy as np
@@ -9,7 +9,7 @@ import pandas as pd
 
 # Index level names
 REL_NAME = "Relationship"
-ORDER_NAME = "Order"
+NUM_CLUSTS_NAME = "K"
 CLUST_NAME = "Cluster"
 
 # Profile name prefixes
@@ -17,108 +17,152 @@ AVERAGE_PREFIX = "average"
 CLUSTER_PREFIX = "cluster"
 
 # Header selection keys
+<<<<<<< HEAD
 ORDER_CLUST_KEY = "order_clust_list"
 
+=======
+K_CLUST_KEY = "k_clust_list"
+>>>>>>> upstream/0.22.0
 
-def validate_order_clust(order: int, clust: int, allow_zero: bool = False):
-    """ Validate a pair of order and cluster numbers.
+
+def validate_k_clust(k: int, clust: int):
+    """ Validate a pair of k and cluster numbers.
 
     Parameters
     ----------
-    order: int
-        Order number
+    k: int
+        Number of clusters
     clust: int
         Cluster number
-    allow_zero: bool = False
-        Allow order and cluster to be 0.
 
     Returns
     -------
     None
-        If the order and cluster numbers form a valid pair.
+        If the k and cluster numbers form a valid pair.
 
     Raises
     ------
     TypeError
-        If order or cluster is not an integer.
+        If k or clust is not an integer.
     ValueError
-        If the order and cluster numbers do not form a valid pair.
+        If k and clust do not form a valid pair.
     """
-    if not isinstance(order, int):
-        raise TypeError(f"order must be an int, but got {type(order).__name__}")
+    if not isinstance(k, int):
+        raise TypeError(f"k must be int, but got {type(k).__name__}")
     if not isinstance(clust, int):
-        raise TypeError(f"clust must be an int, but got {type(clust).__name__}")
-    min_order = int(not allow_zero)
-    if order < min_order:
-        raise ValueError(f"order must be ≥ {min_order}, but got {order}")
-    min_clust = int(order > 0)
+        raise TypeError(f"clust must be int, but got {type(clust).__name__}")
+    if k < 0:
+        raise ValueError(f"k must be ≥ 0, but got {k}")
+    min_clust = 1 if k > 0 else 0
     if clust < min_clust:
         raise ValueError(f"clust must be ≥ {min_clust}, but got {clust}")
-    if clust > order:
-        raise ValueError(f"clust must be ≤ order, but got {clust} > {order}")
+    if clust > k:
+        raise ValueError(f"clust must be ≤ k, but got {clust} > {k}")
 
 
-def format_clust_name(order: int, clust: int, allow_zero: bool = False):
-    """ Format a pair of order and cluster numbers into a name.
-
-    Parameters
-    ----------
-    order: int
-        Order number
-    clust: int
-        Cluster number
-    allow_zero: bool = False
-        Allow order and cluster to be 0.
-
-    Returns
-    -------
-    str
-        Name specifying the order and cluster numbers, or "average" if
-        the order number is 0.
-    """
-    validate_order_clust(order, clust, allow_zero)
-    return f"{CLUSTER_PREFIX} {order}-{clust}" if order > 0 else AVERAGE_PREFIX
-
-
-def format_clust_names(clusts: Iterable[tuple[int, int]],
-                       allow_zero: bool = False,
-                       allow_duplicates: bool = False):
-    """ Format pairs of order and cluster numbers into a list of names.
+def validate_ks(ks: Iterable):
+    """ Validate and sort numbers of clusters.
 
     Parameters
     ----------
-    clusts: Iterable[tuple[int, int]]
-        Zero or more pairs of order and cluster numbers.
-    allow_zero: bool = False
-        Allow order and cluster to be 0.
-    allow_duplicates: bool = False
-        Allow order and cluster pairs to be duplicated.
+    ks: Iterable
+        Numbers of clusters
 
     Returns
     -------
-    list[str]
-        List of names of the pairs of order and cluster numbers.
+    list[int]
+        Sorted numbers of clusters
 
     Raises
     ------
     ValueError
-        If `allow_duplicates` is False and an order-cluster pair occurs
-        more than once.
+        If any k is not positive or is repeated.
+    """
+    validated = set()
+    for k in map(int, ks):
+        if k < 1:
+            raise ValueError(f"k must be ≥ 1, but got {k}")
+        if k in validated:
+            raise ValueError(f"Duplicate k: {k}")
+        validated.add(k)
+    return sorted(validated)
+
+
+def deduplicate_rels(rels: Iterable):
+    """ Remove duplicate relationships while preserving their order.
+
+    Parameters
+    ----------
+    rels: Iterable
+        Relationships
+
+    Returns
+    -------
+    list[str]
+        Relationships with duplicates removed, in the original order.
+    """
+    ordered = list()
+    unordered = set()
+    for rel in map(str, rels):
+        if rel not in unordered:
+            ordered.append(rel)
+            unordered.add(rel)
+    return ordered
+
+
+def format_clust_name(k: int, clust: int):
+    """ Format a pair of k and cluster numbers into a name.
+
+    Parameters
+    ----------
+    k: int
+        Number of clusters
+    clust: int
+        Cluster number
+
+    Returns
+    -------
+    str
+        Name specifying k and clust, or "average" if k is 0.
+    """
+    validate_k_clust(k, clust)
+    return f"{CLUSTER_PREFIX} {k}-{clust}" if k > 0 else AVERAGE_PREFIX
+
+
+def format_clust_names(clusts: Iterable[tuple[int, int]],
+                       allow_duplicates: bool = False):
+    """ Format pairs of k and clust into a list of names.
+
+    Parameters
+    ----------
+    clusts: Iterable[tuple[int, int]]
+        Zero or more pairs of k and cluster numbers.
+    allow_duplicates: bool = False
+        Allow k and clust pairs to be duplicated.
+
+    Returns
+    -------
+    list[str]
+        List of names of the pairs of k and clust.
+
+    Raises
+    ------
+    ValueError
+        If `allow_duplicates` is False and clusts has duplicates.
     """
     if not allow_duplicates:
         counts = Counter(clusts := list(clusts))
         if dups := [clust for clust, count in counts.items() if count > 1]:
             raise ValueError(f"Duplicate clusters: {dups}")
-    return [format_clust_name(order, clust, allow_zero=allow_zero)
-            for order, clust in clusts]
+    return [format_clust_name(k, clust) for k, clust in clusts]
 
 
-def list_clusts(order: int):
-    """ List all cluster numbers for one order.
+def list_clusts(k: int):
+    """ List all cluster numbers for one k.
 
     Parameters
     ----------
-    order: int
+    k: int
         Number of clusters (≥ 0)
 
     Returns
@@ -126,150 +170,42 @@ def list_clusts(order: int):
     list[int]
         List of cluster numbers.
     """
-    if order < 0:
-        raise ValueError(f"order must be ≥ 0, but got {order}")
-    return list(range(1, order + 1)) if order > 0 else [0]
+    if k < 1:
+        raise ValueError(f"k must be ≥ 1, but got {k}")
+    return list(range(1, k + 1))
 
 
-def list_orders(max_order: int, min_order: int = 1):
-    """ List order numbers from `min_order` to `max_order`.
-
-    Parameters
-    ----------
-    max_order: int
-        Maximum number of clusters (≥ 0)
-    min_order: int = 1
-        Minimum number of clusters (≥ 1)
-
-    Returns
-    -------
-    list[int]
-        List of numbers of clusters
-    """
-    if min_order < 1:
-        raise ValueError(f"min_order must be ≥ 1, but got {min_order}")
-    if max_order < 0:
-        raise ValueError(f"max_order must be ≥ 0, but got {max_order}")
-    if max_order == 0:
-        if min_order != 1:
-            raise ValueError("If max_order = 0, then min_order must be 1, "
-                             f"but got {min_order}")
-        return [0]
-    if max_order < min_order:
-        raise ValueError("If not 0, max_order must be ≥ min_order, "
-                         f"but got {max_order} < {min_order}")
-    return list(range(min_order, max_order + 1))
-
-
-def index_clusts(order: int):
-    """ Index of cluster numbers for one order.
+def list_k_clusts(k: int):
+    """ List k and cluster numbers as 2-tuples for one k.
 
     Parameters
     ----------
-    order: int
-        Number of clusters (≥ 0)
-
-    Returns
-    -------
-    pd.Index
-        Index of cluster numbers
-    """
-    return pd.Index(list_clusts(order), name=CLUST_NAME)
-
-
-def index_orders(max_order: int, min_order: int = 1):
-    """ Index of order numbers from `min_order` to `max_order`.
-
-    Parameters
-    ----------
-    max_order: int
-        Maximum number of clusters (≥ 0)
-    min_order: int = 1
-        Minimum number of clusters (≥ 1)
-
-    Returns
-    -------
-    pd.Index
-        Index of order numbers
-    """
-    return pd.Index(list_orders(max_order, min_order), name=ORDER_NAME)
-
-
-def list_order_clusts(order: int):
-    """ List order and cluster numbers as 2-tuples for one order.
-
-    Parameters
-    ----------
-    order: int
+    k: int
         Number of clusters (≥ 0)
 
     Returns
     -------
     list[tuple[int, int]]
-        List wherein each item is a tuple of the order of clustering
-        (i.e. number of clusters) and the cluster number.
+        List wherein each item is a tuple of the number of clusters
+        and the cluster number.
     """
-    return list(product([order], list_clusts(order)))
+    return [(k, clust) for clust in list_clusts(k)]
 
 
-def list_orders_clusts(max_order: int, min_order: int = 1):
-    """ List order and cluster numbers as 2-tuples for every order from
-    `min_order` to `max_order`.
+def list_ks_clusts(ks: Iterable[int]):
+    """ List k and cluster numbers as 2-tuples.
 
     Parameters
     ----------
-    max_order: int
-        Maximum number of clusters (≥ 0)
-    min_order: int = 1
-        Minimum number of clusters (≥ 1)
+    ks: Iterable[int]
 
     Returns
     -------
     list[tuple[int, int]]
-        List wherein each item is a tuple of the order of clustering
-        (i.e. number of clusters) and the cluster number.
+        List wherein each item is a tuple of the number of clusters
+        and the cluster number.
     """
-    return list(chain(*map(list_order_clusts,
-                           list_orders(max_order, min_order))))
-
-
-def index_order_clusts(order: int):
-    """ List order and cluster numbers as a MultiIndex for one order.
-
-    Parameters
-    ----------
-    order: int
-        Number of clusters (≥ 0)
-
-    Returns
-    -------
-    pd.MultiIndex
-        Index wherein each item is a tuple of the order of clustering
-        (i.e. number of clusters) and the cluster number.
-    """
-    return pd.MultiIndex.from_tuples(list_order_clusts(order),
-                                     names=ClustHeader.level_names())
-
-
-def index_orders_clusts(max_order: int, min_order: int = 1):
-    """ List order and cluster numbers as a MultiIndex for every order
-    from `min_order` to `max_order`.
-
-    Parameters
-    ----------
-    max_order: int
-        Maximum number of clusters (≥ 0)
-    min_order: int = 1
-        Minimum number of clusters (≥ 1)
-
-    Returns
-    -------
-    pd.MultiIndex
-        Index wherein each item is a tuple of the order of clustering
-        (i.e. number of clusters) and the cluster number.
-    """
-    return pd.MultiIndex.from_tuples(list_orders_clusts(max_order, min_order),
-                                     names=ClustHeader.level_names())
+    return list(chain(*map(list_k_clusts, validate_ks(ks))))
 
 
 class Header(ABC):
@@ -303,51 +239,35 @@ class Header(ABC):
 
     @property
     @abstractmethod
-    def max_order(self) -> int:
-        """ Maximum number of clusters (≥ 1) if clustered, else 0. """
+    def ks(self) -> list[int]:
+        """ Numbers of clusters. """
 
-    @property
+    @cached_property
     @abstractmethod
-    def min_order(self) -> int:
-        """ Minimum number of clusters (≥ 1) if clustered, else 1. """
-
-    @cached_property
-    def orders(self):
-        """ Index of order numbers. """
-        return index_orders(self.max_order, self.min_order)
-
-    @cached_property
-    def clusts(self):
-        """ Order and cluster numbers of the header. """
-        return index_orders_clusts(self.max_order, self.min_order)
+    def clusts(self) -> list[tuple[int, int]]:
+        """ Tracks of data: clusters for clustered data, otherwise one
+        track of the average. """
 
     @cached_property
     def names(self):
-        """ Formatted name of each cluster. """
+        """ Formatted name of each track. """
         return format_clust_names(self.clusts, not self.clustered())
 
     @cached_property
     def signature(self):
         """ Signature of the header, which will generate an identical
         header if passed as keyword arguments to `make_header`. """
-        return dict(max_order=self.max_order, min_order=self.min_order)
+        return dict()
 
     @cached_property
     @abstractmethod
     def index(self) -> pd.Index:
         """ Index of the header. """
 
+    @abstractmethod
     def iter_clust_indexes(self):
-        """ For each cluster in the header, yield an Index or MultiIndex
-        of every column in the header that is part of the cluster. """
-        if self.max_order == 0:
-            # There are no clusters, so just yield all relationships.
-            yield self.index
-        else:
-            # For each cluster in the header, select the corresponding
-            # order and cluster in the index.
-            for order, clust in self.clusts:
-                yield self.select(order=order, clust=clust)
+        """ For each cluster, yield an Index/MultiIndex of every column
+        that is part of the cluster. """
 
     @property
     def size(self):
@@ -358,18 +278,18 @@ class Header(ABC):
         """ Select and return items from the header as an Index. """
         index = self.index
         selected = np.ones(index.size, dtype=bool)
-        # Handle combinations of order and clust specified in a list of tuples.
-        if value := kwargs.pop(ORDER_CLUST_KEY, None):
+        # Handle combinations of k and clust specified in a list of tuples.
+        if value := kwargs.pop(K_CLUST_KEY, None):
             assert isinstance(value, list),\
-            f"{ORDER_CLUST_KEY} must be a list of tuples."
-            order_name = self.levels().get('order')
+            f"{K_CLUST_KEY} must be a list of tuples."
+            k_name = self.levels().get('k')
             clust_name = self.levels().get('clust')
             combo_selected = np.zeros(index.size, dtype=bool)
-            for order, clust in value:
+            for k, clust in value:
                 # Find rows that match each specified combination.
-                order_match = index.get_level_values(order_name) == order
+                k_match = index.get_level_values(k_name) == k
                 clust_match = index.get_level_values(clust_name) == clust
-                combo_selected |= (order_match & clust_match)
+                combo_selected |= (k_match & clust_match)
             if np.all(selected):
                 selected &= combo_selected
             else:
@@ -410,44 +330,32 @@ class Header(ABC):
         """
         return make_header(**(self.signature | kwargs))
 
-    @property
-    @abstractmethod
-    def _descripts(self):
-        """ Description keys. """
-        return dict()
+    def get_clust_header(self):
+        """ Corresponding ClustHeader. """
+        return self.modified(rels=None)
 
-    @cached_property
-    def _descripts_str(self):
-        """ String of description keys. """
-        return ", ".join(f"{k}={v}" for k, v in self._descripts.items())
+    def get_rel_header(self):
+        """ Corresponding RelHeader. """
+        return self.modified(ks=None)
 
     def __eq__(self, other):
-        if not isinstance(other, Header):
-            return NotImplemented
-        if not isinstance(other, type(self)):
-            return False
         if self is other:
             return True
+        if not isinstance(other, Header):
+            return NotImplemented
+        if type(other) is not type(self):
+            return False
         for key, value in self.signature.items():
             other_value = other.signature[key]
             if not isinstance(other_value, type(value)):
                 raise TypeError(f"For key {repr(key)}, types of {repr(value)} "
                                 f"and {repr(other_value)} differ")
-            if isinstance(value, int):
-                if value != other_value:
-                    return False
-            elif isinstance(value, np.ndarray):
-                if not np.array_equal(value, other_value):
-                    return False
-            elif isinstance(value, pd.Index):
-                if not value.equals(other_value):
-                    return False
-            else:
-                raise TypeError(f"Invalid type for {repr(key)}: {repr(value)}")
+            if value != other_value:
+                return False
         return True
 
     def __str__(self):
-        return f"{type(self).__name__}({self._descripts_str})"
+        return f"{type(self).__name__}({self.signature})"
 
     def __repr__(self):
         return str(self)
@@ -472,27 +380,20 @@ class RelHeader(Header):
             One or more relationships in the header.
         """
         super().__init__(**kwargs)
-        # Convert rels to an array of strings.
-        rels = np.asarray(rels, dtype=str)
-        if rels.size == 0:
-            raise ValueError("Got no relationships for header")
-        # Find the unique relationships.
-        _, uniq_indexes = np.unique(rels, return_index=True)
-        # Get the unique relationships in their original order.
-        self._rels = rels[np.sort(uniq_indexes)]
+        self._rels = deduplicate_rels(rels)
 
     @property
-    def rels(self) -> np.ndarray:
+    def rels(self):
         """ Relationships. """
         return self._rels
 
     @property
-    def max_order(self):
-        return 0
+    def ks(self):
+        return [0]
 
     @property
-    def min_order(self):
-        return 1
+    def clusts(self):
+        return [(0, 0)]
 
     @cached_property
     def signature(self):
@@ -502,13 +403,12 @@ class RelHeader(Header):
     def index(self):
         return pd.Index(self.rels, name=REL_NAME)
 
-    @property
-    def _descripts(self):
-        return super()._descripts | dict(rels=self.rels.tolist())
+    def iter_clust_indexes(self):
+        yield self.index
 
 
 class ClustHeader(Header):
-    """ Header of order and cluster numbers. """
+    """ Header of clusters. """
 
     @classmethod
     def clustered(cls):
@@ -516,78 +416,68 @@ class ClustHeader(Header):
 
     @classmethod
     def levels(cls):
-        return super().levels() | dict(order=ORDER_NAME, clust=CLUST_NAME)
+        return super().levels() | dict(k=NUM_CLUSTS_NAME, clust=CLUST_NAME)
 
-    def __init__(self, *, max_order: int, min_order: int = 1, **kwargs):
+    def __init__(self, *, ks: Iterable[int], **kwargs):
         super().__init__(**kwargs)
-        if max_order < 1:
-            raise ValueError(f"max_order must be ≥ 1, but got {max_order}")
-        self._max_order = max_order
-        self._min_order = min_order
+        self._ks = validate_ks(ks)
 
     @property
-    def max_order(self):
-        return self._max_order
+    def ks(self):
+        return self._ks
 
-    @property
-    def min_order(self):
-        return self._min_order
+    @cached_property
+    def signature(self):
+        return super().signature | dict(ks=self.ks)
+
+    @cached_property
+    def clusts(self):
+        return list_ks_clusts(self.ks)
 
     @cached_property
     def index(self):
-        return self.clusts
+        return pd.MultiIndex.from_tuples(self.clusts, names=self.level_names())
 
-    @property
-    def _descripts(self):
-        orders = dict(max_order=self.max_order)
-        if self.min_order is not None:
-            orders.update(min_order=self.min_order)
-        return super()._descripts | orders
+    def iter_clust_indexes(self):
+        for k, clust in self.clusts:
+            yield self.select(k=k, clust=clust)
 
 
 class RelClustHeader(ClustHeader, RelHeader):
-    """ Header of relationships with order and cluster numbers. """
+    """ Header of relationships and clusters. """
 
     @cached_property
     def index(self):
-        return pd.MultiIndex.from_arrays(
-            [np.repeat(self.rels, self.clusts.size),
-             *map(partial(np.tile, reps=self.rels.size),
-                  map(self.clusts.get_level_values,
-                      ClustHeader.level_names()))],
-            names=self.level_names()
-        )
+        return pd.MultiIndex.from_tuples([(rel, k, clust)
+                                          for rel in self.rels
+                                          for k, clust in self.clusts],
+                                         names=self.level_names())
 
 
 def make_header(*,
-                rels: Iterable[str] = (),
-                max_order: int = 0,
-                min_order: int = 1):
+                rels: Iterable[str] | None = None,
+                ks: Iterable[int] | None = None):
     """ Make a new Header of an appropriate type.
 
     Parameters
     ----------
-    rels: Iterable[str]
-        Relationships in the header.
-    max_order: int = 0
-        Maximum number of clusters (≥ 1), or 0 if not clustered.
-    min_order: int = 1
-        Minimum number of clusters (≥ 1), or 1 if not clustered.
+    rels: Iterable[str] | None = None
+        Relationships in the header
+    ks: Iterable[int] | None = None
+        Numbers of clusters
 
     Returns
     -------
     Header
         Header of the appropriate type.
     """
-    if rels := list(rels):
-        if max_order > 0:
-            return RelClustHeader(rels=rels,
-                                  max_order=max_order,
-                                  min_order=min_order)
+    if rels is not None:
+        if ks is not None:
+            return RelClustHeader(rels=rels, ks=ks)
         return RelHeader(rels=rels)
-    if max_order > 0:
-        return ClustHeader(max_order=max_order, min_order=min_order)
-    raise TypeError(f"No header for rels={rels} and max_order={max_order}")
+    if ks is not None:
+        return ClustHeader(ks=ks)
+    raise TypeError("Must give rels, ks, or both, but got neither")
 
 
 def parse_header(index: pd.Index | pd.MultiIndex):
@@ -603,25 +493,25 @@ def parse_header(index: pd.Index | pd.MultiIndex):
     Header
         New Header whose index is `index`.
     """
-    kwargs = dict()
-    try:
-        if isinstance(index, pd.MultiIndex):
-            rels = index.get_level_values(REL_NAME).values
-        elif index.name is None or index.name == REL_NAME:
-            rels = index.values
+    if isinstance(index, pd.MultiIndex):
+        names = index.names
+        if REL_NAME in names:
+            rels = list(map(str,
+                            deduplicate_rels(index.get_level_values(REL_NAME))))
         else:
-            raise ValueError(f"Expected index named {repr(REL_NAME)}, "
-                             f"but got {repr(index.name)}")
-        kwargs.update(rels=rels)
-    except KeyError:
-        pass
-    try:
-        orders = np.asarray(index.get_level_values(ORDER_NAME).values,
-                            dtype=int)
-        kwargs.update(max_order=np.max(orders), min_order=np.min(orders))
-    except (KeyError, ValueError):
-        pass
-    header = make_header(**kwargs)
+            rels = None
+        if NUM_CLUSTS_NAME in names:
+            ks = list(map(int,
+                          np.unique(index.get_level_values(NUM_CLUSTS_NAME))))
+        else:
+            ks = None
+    elif index.name is None or index.name == REL_NAME:
+        rels = deduplicate_rels(index.values)
+        ks = None
+    else:
+        raise ValueError(f"Expected index named {repr(REL_NAME)}, "
+                         f"but got {repr(index.name)}")
+    header = make_header(rels=rels, ks=ks)
     # Verify that the index of the new header matches the given index.
     if isinstance(index, pd.MultiIndex):
         if set(index.names) != set(header.level_names()):

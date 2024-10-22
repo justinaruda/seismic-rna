@@ -1,20 +1,17 @@
 import os
 from abc import ABC
 from functools import cached_property
-from logging import getLogger
 
 from click import command
 from plotly import graph_objects as go
 
-from .base import PosGraphWriter, PosGraphRunner
+from .base import GraphWriter, PosGraphRunner
 from .color import ColorMapGraph, RelColorMap, SeqColorMap
 from .onetable import OneTableGraph, OneTableRunner, OneTableWriter
 from .rel import MultiRelsGraph, OneRelGraph
 from .trace import iter_seq_base_bar_traces, iter_seqbar_stack_traces
 from ..core.header import parse_header
 from ..core.seq import POS_NAME
-
-logger = getLogger(__name__)
 
 COMMAND = __name__.split(os.path.extsep)[-1]
 
@@ -37,9 +34,9 @@ class ProfileGraph(OneTableGraph, ColorMapGraph, ABC):
     @cached_property
     def data(self):
         return self._fetch_data(self.table,
-                                order=self.order,
+                                k=self.k,
                                 clust=self.clust,
-                                order_clust_list=self.order_clust_list)
+                                k_clust_list=self.k_clust_list)
 
     @cached_property
     def data_header(self):
@@ -89,7 +86,7 @@ class MultiRelsProfileGraph(MultiRelsGraph, ProfileGraph):
                 yield (row, 1), trace
 
 
-class ProfileWriter(OneTableWriter, PosGraphWriter):
+class ProfileWriter(OneTableWriter, GraphWriter):
 
     def get_graph(self, rels_group: str, **kwargs):
         return (OneRelProfileGraph(table=self.table,

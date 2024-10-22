@@ -7,21 +7,19 @@ https://rna.urmc.rochester.edu/RNAstructure.html
 
 import os
 import re
-from logging import getLogger
 from pathlib import Path
+from shutil import which
 
-from ..core import path
-from ..core.extern import (RNASTRUCTURE_CT2DOT_CMD,
-                           RNASTRUCTURE_DOT2CT_CMD,
-                           RNASTRUCTURE_FOLD_CMD,
+from ..core.arg import docdef
+from ..core.extern import (RNASTRUCTURE_FOLD_CMD,
                            RNASTRUCTURE_FOLD_SMP_CMD,
                            args_to_cmd,
                            run_cmd)
+from ..core.logs import logger
 from ..core.rna import RNAProfile, renumber_ct
 from ..core.write import need_write, write_mode
 
-logger = getLogger(__name__)
-
+ENERGY_UNIT = "kcal/mol"
 FOLD_SMP_NUM_THREADS = "OMP_NUM_THREADS"
 DATAPATH = "DATAPATH"
 DATAPATH_FILES = """
@@ -44,7 +42,6 @@ b-test.int22.dg
 b-test.int22.dh
 b-test.loop.dg
 b-test.miscloop.dg
-b-test.miscloop.dh
 b-test.specification.dat
 b-test.stack.dg
 b-test.stack.dh
@@ -175,26 +172,6 @@ int22.dat
 int22.dh
 loop.dat
 loop.dh
-m6A.coaxial.dg
-m6A.coaxstack.dg
-m6A.dangle.dg
-m6A.hexaloop.dg
-m6A.int11.dg
-m6A.int21.dg
-m6A.int22.dg
-m6A.loop.dg
-m6A.miscloop.dg
-m6A.specification.dat
-m6A.stack.dg
-m6A.tloop.dg
-m6A.triloop.dg
-m6A.tstack.dg
-m6A.tstackcoax.dg
-m6A.tstackh.dg
-m6A.tstacki.dg
-m6A.tstacki1n.dg
-m6A.tstacki23.dg
-m6A.tstackm.dg
 miscloop.dat
 miscloop.dh
 new_training_z_ave.scale.model
@@ -272,142 +249,193 @@ tstackm.dh
 """
 
 
-def check_data_path():
+def check_data_path(data_path: str | Path | None = None) -> Path:
     """ Confirm the DATAPATH environment variable indicates the correct
     directory. """
-    # Get the value of the DATAPATH environment variable, if it exists.
-    data_path = os.environ.get(DATAPATH)
     if data_path is None:
-        return f"the {DATAPATH} environment variable is not set"
+        data_path = os.environ.get(DATAPATH)
+    if data_path is None:
+        raise OSError(f"The {DATAPATH} environment variable is not set")
+    if not isinstance(data_path, Path):
+        data_path = Path(data_path)
     # Check if the path indicated by DATAPATH exists on the file system.
-    if not os.path.exists(data_path):
-        return f"{DATAPATH} is {repr(data_path)}, which does not exist"
-    if not os.path.isdir(data_path):
-        return f"{DATAPATH} is {repr(data_path)}, which is not a directory"
+    if not data_path.is_dir():
+        raise FileNotFoundError(f"{data_path} is not a directory")
     # Check if all expected files in the DATAPATH directory exist.
     extant_files = set(os.listdir(data_path))
     for expected_file in DATAPATH_FILES.strip().split():
         if expected_file not in extant_files:
-            return (f"{DATAPATH} is {repr(data_path)}, which is missing "
-                    f"the required file {repr(expected_file)}")
-    # All checks succeeded.
-    return ""
+            raise FileNotFoundError(f"{data_path} is missing the required "
+                                    f"file {repr(expected_file)}")
+    return data_path
+
+
+def _guess_data_path_conda():
+    """ Guess the DATAPATH if RNAstructure was installed with Conda. """
+    fold_path = which(RNASTRUCTURE_FOLD_CMD)
+    if fold_path is None:
+        raise OSError(
+            f"RNAstructure not seem to be installed: {RNASTRUCTURE_FOLD_CMD}"
+        )
+    fold_path = Path(fold_path)
+    env_dir = fold_path.parent.parent
+    data_path = env_dir.joinpath("share", "rnastructure", "data_tables")
+    if not data_path.is_dir():
+        raise OSError("It seems RNAstructure is not installed with Conda: "
+                      f"{data_path} does not exist")
+    check_data_path(data_path)
+    logger.detail(f"Successfully guessed {DATAPATH}: {data_path}")
+    return data_path
+
+
+def _guess_data_path_manual():
+    """ Guess the DATAPATH if RNAstructure was installed manually
+    (e.g. by downloading from the Mathews Lab website). """
+    fold_path = which(RNASTRUCTURE_FOLD_CMD)
+    if fold_path is None:
+        raise OSError(
+            f"RNAstructure not seem to be installed: {RNASTRUCTURE_FOLD_CMD}"
+        )
+    fold_path = Path(fold_path)
+    data_path = fold_path.parent.parent.joinpath("data_tables")
+    check_data_path(data_path)
+    logger.detail(f"Successfully guessed {DATAPATH}: {data_path}")
+    return data_path
+
+
+def guess_data_path():
+    """ Guess the DATAPATH. """
+    errors = list()
+    try:
+        return check_data_path()
+    except OSError as error:
+        errors.append(error)
+        logger.warning(f"The {DATAPATH} environment variable is not valid; "
+                       f"attempting to guess it")
+    for guess_func in [_guess_data_path_conda,
+                       _guess_data_path_manual]:
+        try:
+            return guess_func()
+        except OSError as error:
+            errors.append(error)
+    raise OSError("\n".join(f" -> {error}" for error in errors))
 
 
 def require_data_path():
     """ Return an error message if the DATAPATH is not valid. """
-    if error := check_data_path():
-        # The DATAPATH is not valid: error message.
-        return (
+    try:
+        data_path = guess_data_path()
+    except OSError as error:
+        raise OSError(
             f"RNAstructure requires an environment variable called {DATAPATH} "
             f"to point to the directory in which its thermodynamic parameters "
-            f"are located, but {error}. For more information, please refer to "
+            f"are located, but\n{error}\nFor more information, please refer to "
             f"https://rna.urmc.rochester.edu/Text/Thermodynamics.html"
-        )
-    # The DATAPATH is valid: no error.
-    return ""
+        ) from None
+    # Set the DATAPATH environment variable if it is not already set.
+    data_path_str = str(data_path)
+    if os.environ.get(DATAPATH) != data_path_str:
+        os.environ[DATAPATH] = data_path_str
+    return data_path
 
 
+def make_fold_cmd(fasta_file: Path,
+                  ct_file: Path, *,
+                  dms_file: Path | None,
+                  fold_constraint: Path | None,
+                  fold_temp: float,
+                  fold_md: int,
+                  fold_mfe: bool,
+                  fold_max: int,
+                  fold_percent: float,
+                  n_procs: int = 1):
+    if n_procs > 1:
+        # Fold with multiple threads using the Fold-smp program.
+        cmd = [RNASTRUCTURE_FOLD_SMP_CMD]
+        os.environ[FOLD_SMP_NUM_THREADS] = str(n_procs)
+    else:
+        # Fold with one thread using the Fold program.
+        cmd = [RNASTRUCTURE_FOLD_CMD]
+    if dms_file is not None:
+        # File of DMS reactivities.
+        cmd.extend(["--DMS", dms_file])
+    if fold_constraint is not None:
+        # File of constraints.
+        cmd.extend(["--constraint", fold_constraint])
+    # Temperature of folding (Kelvin).
+    cmd.extend(["--temperature", fold_temp])
+    if fold_md > 0:
+        # Maximum distance between paired bases.
+        cmd.extend(["--maxdistance", fold_md])
+    if fold_mfe:
+        # Predict only the minimum free energy structure.
+        cmd.append("--MFE")
+    else:
+        # Maximum number of structures.
+        cmd.extend(["--maximum", fold_max])
+        # Maximum % difference between free energies of structures.
+        cmd.extend(["--percent", fold_percent])
+    # Input and output files.
+    cmd.append(fasta_file)
+    cmd.append(ct_file)
+    return cmd
+
+
+@docdef.auto()
 def fold(rna: RNAProfile, *,
          fold_temp: float,
-         fold_constraint: Path | None,
+         fold_constraint: Path | None = None,
          fold_md: int,
          fold_mfe: bool,
          fold_max: int,
          fold_percent: float,
          out_dir: Path,
-         temp_dir: Path,
-         keep_temp: bool,
-         force: bool,
+         tmp_dir: Path,
+         keep_tmp: bool,
          n_procs: int):
     """ Run the 'Fold' or 'Fold-smp' program of RNAstructure. """
-    ct_file = rna.get_ct_file(out_dir)
-    if need_write(ct_file, force):
-        if n_procs > 1:
-            # Fold with multiple threads using the Fold-smp program.
-            cmd = [RNASTRUCTURE_FOLD_SMP_CMD]
-            os.environ[FOLD_SMP_NUM_THREADS] = str(n_procs)
-        else:
-            # Fold with one thread using the Fold program.
-            cmd = [RNASTRUCTURE_FOLD_CMD]
-        # Temperature of folding (Kelvin).
-        cmd.extend(["--temperature", fold_temp])
-        if fold_constraint is not None:
-            # File of constraints.
-            cmd.extend(["--constraint", fold_constraint])
-        if fold_md > 0:
-            # Maximum distance between paired bases.
-            cmd.extend(["--maxdistance", fold_md])
-        if fold_mfe:
-            # Predict only the minimum free energy structure.
-            cmd.append("--MFE")
-        else:
-            # Maximum number of structures.
-            cmd.extend(["--maximum", fold_max])
-            # Maximum % difference between free energies of structures.
-            cmd.extend(["--percent", fold_percent])
-        # DMS reactivities file for the RNA.
-        cmd.extend(["--DMS", dms_file := rna.to_dms(temp_dir)])
-        # Temporary FASTA file for the RNA.
-        cmd.append(fasta := rna.to_fasta(temp_dir))
-        # Path of the temporary CT file.
-        cmd.append(ct_temp := rna.get_ct_file(temp_dir))
+    ct_out = rna.get_ct_file(out_dir)
+    # Temporary FASTA file for the RNA.
+    fasta_tmp = rna.to_fasta(tmp_dir)
+    # Path of the temporary CT file.
+    ct_tmp = rna.get_ct_file(tmp_dir)
+    # DMS reactivities file for the RNA.
+    dms_file = rna.to_dms(tmp_dir)
+    try:
+        # Run the command.
+        fold_cmds = {
+            smp: args_to_cmd(make_fold_cmd(fasta_tmp,
+                                           ct_tmp,
+                                           dms_file=dms_file,
+                                           fold_constraint=fold_constraint,
+                                           fold_temp=fold_temp,
+                                           fold_md=fold_md,
+                                           fold_mfe=fold_mfe,
+                                           fold_max=fold_max,
+                                           fold_percent=fold_percent,
+                                           n_procs=(n_procs if smp else 1)))
+            for smp in [True, False]
+        }
         try:
-            # Run the command.
-            run_cmd(args_to_cmd(cmd))
-            # Reformat the CT file title lines so that each is unique.
-            retitle_ct_structures(ct_temp, ct_temp, force=True)
-            # Renumber the CT file so that it has the same numbering
-            # scheme as the section, rather than always starting at 1,
-            # the latter of which is always output by the Fold program.
-            renumber_ct(ct_temp, ct_file, rna.section.end5, force)
-        finally:
-            if not keep_temp:
-                # Delete the temporary files.
-                fasta.unlink(missing_ok=True)
-                dms_file.unlink(missing_ok=True)
-                ct_temp.unlink(missing_ok=True)
-    return ct_file
-
-
-def ct2dot(ct_file: Path, number: int | str = "all"):
-    """ Make a dot-bracket (DB) file of a connectivity-table (CT) file.
-
-    Parameters
-    ----------
-    ct_file: pathlib.Path
-        Path to the CT file.
-    number: int | str = "all"
-        Number of the structure to convert, or "all" to convert all.
-
-    Returns
-    -------
-    pathlib.Path
-        Path to the DB file.
-    """
-    db_file = ct_file.with_suffix(path.DB_EXT)
-    cmd = [RNASTRUCTURE_CT2DOT_CMD, ct_file, number, db_file]
-    run_cmd(args_to_cmd(cmd))
-    return db_file
-
-
-def dot2ct(db_file: Path):
-    """ Make a connectivity-table (CT) file of a dot-bracket (DB) file.
-
-    Parameters
-    ----------
-    db_file: pathlib.Path
-        Path to the DB file.
-
-    Returns
-    -------
-    pathlib.Path
-        Path to the CT file.
-    """
-    ct_file = db_file.with_suffix(path.CT_EXT)
-    cmd = [RNASTRUCTURE_DOT2CT_CMD, db_file, ct_file]
-    run_cmd(args_to_cmd(cmd))
-    return ct_file
+            run_cmd(fold_cmds[True])
+        except RuntimeError as error:
+            logger.warning(error)
+            run_cmd(fold_cmds[False])
+        # Reformat the CT file title lines so that each is unique.
+        retitle_ct(ct_tmp, ct_tmp, force=True)
+        # Renumber the CT file so that it has the same numbering scheme
+        # as the section, rather than always starting at 1, the latter
+        # of which is always output by the Fold program.
+        renumber_ct(ct_tmp, ct_out, rna.section.end5, force=True)
+    finally:
+        if not keep_tmp:
+            # Delete the temporary files.
+            fasta_tmp.unlink(missing_ok=True)
+            dms_file.unlink(missing_ok=True)
+            if ct_tmp != ct_out:
+                ct_tmp.unlink(missing_ok=True)
+    logger.routine(f"Predicted structure of {rna} to {ct_out}")
+    return ct_out
 
 
 def parse_rnastructure_ct_title(line: str):
@@ -419,7 +447,7 @@ def parse_rnastructure_ct_title(line: str):
     the name of the reference, and {energy} is the predicted free energy
     of folding.
     Also handle the edge case when RNAstructure predicts no base pairs
-    (and thus does not write the free energy) by returning NaN.
+    (and thus does not write the free energy) by returning 0.
 
     Parameters
     ----------
@@ -444,7 +472,7 @@ def parse_rnastructure_ct_title(line: str):
             raise ValueError(f"Failed to parse CT title line: {repr(line)}")
         logger.warning("CT line contains no energy term (probably because no "
                        f"base pairs were predicted): {repr(line)}")
-        energy = "nan"
+        energy = 0.
     return int(length), float(energy), ref
 
 
@@ -466,17 +494,17 @@ def format_retitled_ct_line(length: int, ref: str, uniqid: int, energy: float):
     ref: str
         Name of the reference.
     energy: float
-        Free energy of folding.
+        Free energy of folding (kcal/mol).
 
     Returns
     -------
     str
         Formatted CT title line.
     """
-    return f"{length}\t{ref} #{uniqid}: {energy}\n"
+    return f"{length}\t{ref} #{uniqid}: {energy} {ENERGY_UNIT}\n"
 
 
-def retitle_ct_structures(ct_input: Path, ct_output: Path, force: bool = False):
+def retitle_ct(ct_input: Path, ct_output: Path, force: bool = False):
     """ Retitle the structures in a CT file produced by RNAstructure.
 
     The default titles follow this format:
@@ -518,8 +546,12 @@ def retitle_ct_structures(ct_input: Path, ct_output: Path, force: bool = False):
                 uniqid += 1
         # Write the reformatted lines to the output file.
         text = "".join(lines)
-        with open(ct_output, write_mode(force)) as f:
+        with open(ct_output, write_mode(force=True)) as f:
             f.write(text)
+        logger.routine(f"Retitled CT file {ct_input}"
+                       + (f" to {ct_output}"
+                          if ct_input != ct_output
+                          else ""))
 
 
 def parse_energy(line: str):
@@ -541,8 +573,12 @@ def parse_energy(line: str):
     float
         Free energy of folding.
     """
-    _, energy = line.split(":")
-    return float(energy)
+    _, energy = line.split(": ")
+    value, unit = energy.split()
+    if unit != ENERGY_UNIT:
+        raise ValueError(f"Expected energy to have units of {ENERGY_UNIT}, "
+                         f"but got {repr(unit)}")
+    return float(value)
 
 ########################################################################
 #                                                                      #

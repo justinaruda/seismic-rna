@@ -1,17 +1,8 @@
-"""
-
-Core -- Pattern Module
-
-========================================================================
-
-"""
-
 from __future__ import annotations
 
 import re
 from functools import cache
 from itertools import product
-from logging import getLogger
 from typing import Iterable
 
 from .code import (MATCH,
@@ -24,8 +15,6 @@ from .code import (MATCH,
                    SUB_T,
                    REL_TYPE)
 from ..seq import BASEA, BASEC, BASEG, BASET, DNA
-
-logger = getLogger(__name__)
 
 READ_DEL = "D"
 READ_INS = "I"
@@ -54,10 +43,11 @@ class HalfRelPattern(object):
         # is truthy, so short-circuit the OR and return the plain match.
         # If code matches ptrn_fancy, cls.ptrn_fancy.match(code.upper())
         # is truthy, so match becomes truthy and is returned.
-        if match := (cls.ptrn_plain.match(code.lower()) or
-                     cls.ptrn_fancy.match(code.upper())):
+        match = (cls.ptrn_plain.match(code.lower())
+                 or cls.ptrn_fancy.match(code.upper()))
+        if match:
             return match
-        raise ValueError(f"Failed to match code: '{code}'")
+        raise ValueError(f"Failed to match code: {repr(code)}")
 
     @classmethod
     def as_plain(cls, code: str):
@@ -129,7 +119,7 @@ class HalfRelPattern(object):
         # Check each pattern.
         for ref, pattern in patterns.items():
             if ref not in cls.ref_bases:
-                raise ValueError(f"Invalid reference base: '{ref}'")
+                raise ValueError(f"Invalid reference base: {repr(ref)}")
             if pattern & MATCH:
                 # The pattern has its match bit set to 1, so the code
                 # in which this ref base matches the read base counts.
@@ -244,7 +234,7 @@ class HalfRelPattern(object):
     @property
     def codes(self):
         """ Return the codes of the relationships counted. """
-        return list(self.decompile(self.patterns))
+        return sorted(self.decompile(self.patterns))
 
     def fits(self, base: str, rel: int):
         """ Test whether a relationship code fits the pattern. """
@@ -272,7 +262,6 @@ class HalfRelPattern(object):
 
 
 class RelPattern(object):
-
     __slots__ = "yes", "nos"
 
     @classmethod
@@ -307,12 +296,14 @@ class RelPattern(object):
         self.nos = nos
 
     def fits(self, base: str, rel: int):
-        """ """
+        """ Check whether the base and relationship give a definitive
+        result and whether they fit the pattern. """
         is_yes = self.yes.fits(base, rel)
         is_nos = self.nos.fits(base, rel)
         return is_yes != is_nos, is_yes
 
     def intersect(self, other: RelPattern | None, invert: bool = False):
+        """ Intersect the pattern with another. """
         if other is not None:
             yes = self.yes.intersect(other.yes)
             nos = self.nos.intersect(other.nos)
@@ -320,6 +311,10 @@ class RelPattern(object):
             yes = self.yes
             nos = self.nos
         return self.__class__(nos, yes) if invert else self.__class__(yes, nos)
+
+    def invert(self):
+        """ Swap the `yes` and `nos` patterns. """
+        return self.__class__(self.nos, self.yes)
 
     def __str__(self):
         return f"{type(self).__name__}  +[{self.yes}]  -[{self.nos}]"

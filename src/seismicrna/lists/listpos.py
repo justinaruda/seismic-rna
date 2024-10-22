@@ -5,21 +5,20 @@ from click import command
 
 from .lists import get_list_path
 from ..core.arg import (CMD_LISTPOS,
-                        docdef,
                         arg_input_path,
                         opt_complement,
                         opt_max_fmut_pos,
                         opt_force,
-                        opt_max_procs,
-                        opt_parallel)
-from ..core.parallel import as_list_of_tuples, dispatch
+                        opt_max_procs)
+from ..core.run import run_func
 from ..core.seq import FIELD_REF, POS_NAME
+from ..core.task import as_list_of_tuples, dispatch
 from ..core.write import need_write
-from ..table.base import MUTAT_REL, PosTable
-from ..table.load import find_pos_tables, load_pos_table
+from ..core.table import MUTAT_REL, PositionTable
+from ..graph.base import load_pos_tables
 
 
-def find_pos(table: PosTable,
+def find_pos(table: PositionTable,
              max_fmut_pos: float,
              complement: bool):
     # Initially select all unmasked positions.
@@ -37,9 +36,8 @@ def find_pos(table: PosTable,
     return section.unmasked_int
 
 
-def list_pos(table_file: Path, force: bool, **kwargs):
+def list_pos(table: PositionTable, force: bool, **kwargs):
     """ List positions meeting specific criteria from the table. """
-    table = load_pos_table(table_file)
     list_file = get_list_path(table)
     if need_write(list_file, force):
         positions = pd.MultiIndex.from_product(
@@ -50,22 +48,20 @@ def list_pos(table_file: Path, force: bool, **kwargs):
     return list_file
 
 
-@docdef.auto()
+@run_func(CMD_LISTPOS)
 def run(input_path: tuple[str, ...], *,
         max_fmut_pos,
         complement: bool,
         force: bool,
-        max_procs: int,
-        parallel: bool) -> list[Path]:
+        max_procs: int) -> list[Path]:
     """ List positions meeting specific criteria from each table. """
     # Find the positional table files.
-    pos_table_files = find_pos_tables(input_path)
+    tables = load_pos_tables(input_path)
     # List positions for each table.
     return dispatch(list_pos,
                     max_procs,
-                    parallel,
                     pass_n_procs=False,
-                    args=as_list_of_tuples(pos_table_files),
+                    args=as_list_of_tuples(tables),
                     kwargs=dict(max_fmut_pos=max_fmut_pos,
                                 complement=complement,
                                 force=force))
@@ -81,11 +77,10 @@ params = [
     opt_force,
     # Parallelization
     opt_max_procs,
-    opt_parallel,
 ]
 
 
 @command(CMD_LISTPOS, params=params)
 def cli(*args, **kwargs):
-    """ Add more clusters to a dataset that was already clustered. """
+    """ List positions meeting specific criteria. """
     return run(*args, **kwargs)

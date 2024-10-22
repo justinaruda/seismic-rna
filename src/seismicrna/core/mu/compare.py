@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from .nan import auto_removes_nan
-from .scale import calc_rms, calc_ranks, normalize
+from .scale import calc_rms, calc_ranks, normalize_max
 from ..arg import KEY_DETERM, KEY_PEARSON, KEY_NRMSD, KEY_SPEARMAN
 from ..seq import get_shared_index, iter_windows
 
@@ -16,8 +16,8 @@ from ..seq import get_shared_index, iter_windows
 @auto_removes_nan
 def calc_rmsd(mus1: np.ndarray | pd.Series | pd.DataFrame,
               mus2: np.ndarray | pd.Series | pd.DataFrame):
-    """ Calculate the root-mean-square deviation (RMSD) of two groups of
-    mutation rates, ignoring NaNs.
+    """ Calculate the root-mean-square difference (RMSD) of two groups
+    of mutation rates, ignoring NaNs.
 
     Parameters
     ----------
@@ -48,8 +48,8 @@ def calc_rmsd(mus1: np.ndarray | pd.Series | pd.DataFrame,
 @auto_removes_nan
 def calc_nrmsd(mus1: np.ndarray | pd.Series | pd.DataFrame,
                mus2: np.ndarray | pd.Series | pd.DataFrame):
-    """ Calculate the normalized root-mean-square deviation (NRMSD) of
-    two groups of mutation rates, ignoring NaNs.
+    """ Calculate the normalized root-mean-square difference (NRMSD)
+    of two groups of mutation rates, ignoring NaNs.
 
     Parameters
     ----------
@@ -66,7 +66,8 @@ def calc_nrmsd(mus1: np.ndarray | pd.Series | pd.DataFrame,
         Normalized root-mean-square deviation (NRMSD)
     """
     # Normalize the mutation rates so the maximum of each group is 1.
-    return calc_rmsd(normalize(mus1, 1.), normalize(mus2, 1.))
+    return calc_rmsd(normalize_max(mus1),
+                     normalize_max(mus2))
 
 
 @auto_removes_nan
@@ -151,7 +152,7 @@ def calc_spearman(mus1: np.ndarray | pd.Series | pd.DataFrame,
     return calc_pearson(calc_ranks(mus1), calc_ranks(mus2))
 
 
-def _get_comp_method(key: str):
+def get_comp_method(key: str):
     """ Get a comparison method based on its key. """
     lowerkey = key.lower()
     if lowerkey == KEY_NRMSD:
@@ -178,7 +179,7 @@ def get_comp_func(key: str) -> Callable:
     Callable
         Function to compare mutation rates.
     """
-    func, _ = _get_comp_method(key)
+    func, _ = get_comp_method(key)
     return func
 
 
@@ -195,7 +196,7 @@ def get_comp_name(key: str) -> str:
     str
         Name of the comparison method.
     """
-    _, name = _get_comp_method(key)
+    _, name = get_comp_method(key)
     return name
 
 

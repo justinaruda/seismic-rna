@@ -19,24 +19,22 @@ cli_docstrs = {option.name: option.help for option in cli_opts.values()}
 
 def get_param_default(param: Parameter,
                       defaults: dict[str, Any],
-                      exclude_defs: tuple[str, ...]) -> Parameter:
+                      exclude_defaults: tuple[str, ...]):
     """ Return the parameter, possibly with a new default value. """
-    if param.name in exclude_defs:
+    if param.name in exclude_defaults:
         return param
     if param.name in reserved_params:
         return param
     try:
-        default = defaults[param.name]
+        # Return a copy of the parameter with a new default value.
+        return param.replace(default=defaults[param.name])
     except KeyError:
         return param
-    # Return a copy of the parameter with a new default value.
-    return param.replace(default=default)
 
 
-def param_defaults(defaults: dict[str, Any], exclude_defaults: tuple[str, ...]):
+def param_defaults(defaults: dict[str, Any],
+                   exclude_defaults: tuple[str, ...]):
     """ Give the keyword argments of a function default values. """
-    if defaults is None:
-        defaults = dict()
 
     def decorator(func: Callable):
         # List all the parameters of the function, replacing the default
@@ -44,18 +42,20 @@ def param_defaults(defaults: dict[str, Any], exclude_defaults: tuple[str, ...]):
         sig = Signature.from_callable(func)
         new_params = [get_param_default(param, defaults, exclude_defaults)
                       for param in sig.parameters.values()]
-
         # Update the help text (does not affect actual default values).
         try:
             func.__signature__ = Signature(parameters=new_params)
         except ValueError as error:
-            raise ValueError(f"Failed to set signature of {func.__name__} to "
-                             f"({', '.join(map(str, new_params))}): {error}")
+            raise ValueError(
+                f"Failed to set signature of {func.__name__} to "
+                f"({', '.join(map(str, new_params))}): {error}"
+            ) from None
 
         # Update the actual default values of keyword-only arguments
         # (does not affect help text).
         default_kwargs = {param.name: param.default for param in new_params
-                          if param.kind == Parameter.KEYWORD_ONLY}
+                          if param.kind == Parameter.KEYWORD_ONLY
+                          and param.default is not Parameter.empty}
 
         @wraps(func)
         def new_func(*args, **kwargs):
@@ -99,8 +99,8 @@ def get_param_lines(func: Callable, docstrs: dict[str, str]):
             # in brackets after the documentation of the parameter.
             docstr = (f"{docstr} [{param.kind.description}]"
                       if param.default is param.empty
-                      else f"{docstr} [{param.kind.description}, "
-                           f"default: {repr(param.default)}]")
+                      else (f"{docstr} [{param.kind.description}, "
+                            f"default: {repr(param.default)}]"))
             # Add the parameter's name, type, kind, and documentation to
             # the docstring.
             param_lines.extend([f"{name_type}",

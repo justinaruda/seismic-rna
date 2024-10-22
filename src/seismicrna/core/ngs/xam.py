@@ -1,17 +1,14 @@
 import re
-from logging import getLogger
 from pathlib import Path
 from subprocess import CompletedProcess
 
-from .. import path
+from ..logs import logger
 from ..extern import SAMTOOLS_CMD, args_to_cmd, ShellCommand
 
-logger = getLogger(__name__)
-
 # SAM file format specifications
-SAM_HEADER = '@'
-SAM_DELIM = '\t'
-SAM_NOREF = '*'
+SAM_HEADER = "@"
+SAM_DELIM = "\t"
+SAM_NOREF = "*"
 SAM_SEQLINE = "@SQ"
 SAM_SEQNAME = "SN:"
 SAM_SEQLEN = "LN:"
@@ -41,9 +38,26 @@ MAX_FLAG = sum([FLAG_PAIRED,
                 FLAG_SUPPLEMENTARY])
 
 
+def calc_extra_threads(n_procs: int):
+    """ Calculate the number of extra threads to use (option -@). """
+    try:
+        if not isinstance(n_procs, int):
+            raise TypeError(
+                f"n_procs must be int, but got {type(n_procs).__name__}"
+            )
+        if n_procs < 1:
+            raise ValueError(f"n_procs must be ≥ 1, but got {n_procs}")
+        return n_procs - 1
+    except (TypeError, ValueError) as error:
+        logger.warning(error)
+        return 0
+
+
 def index_xam_cmd(bam: Path, *, n_procs: int = 1):
     """ Build an index of a XAM file using `samtools index`. """
-    return args_to_cmd([SAMTOOLS_CMD, "index", "-@", n_procs - 1, bam])
+    return args_to_cmd([SAMTOOLS_CMD, "index",
+                        "-@", calc_extra_threads(n_procs),
+                        bam])
 
 
 run_index_xam = ShellCommand("indexing alignment map",
@@ -51,40 +65,62 @@ run_index_xam = ShellCommand("indexing alignment map",
                              opath=False)
 
 
-def index_fasta_cmd(fasta: Path):
-    """ Build an index of a FASTA file using `samtools faidx`. """
-    return args_to_cmd([SAMTOOLS_CMD, "faidx", fasta])
-
-
-run_index_fasta = ShellCommand("indexing reference file",
-                               index_fasta_cmd,
-                               opath=False)
-
-
 def sort_xam_cmd(xam_inp: Path | None,
                  xam_out: Path | None, *,
-                 temp_dir: Path | None = None,
+                 tmp_pfx: Path | None = None,
                  name: bool = False,
                  n_procs: int = 1):
     """ Sort a SAM or BAM file using `samtools sort`. """
-    args = [SAMTOOLS_CMD, "sort", "-@", n_procs - 1]
+    args = [SAMTOOLS_CMD, "sort",
+            "-@", calc_extra_threads(n_procs)]
     if name:
         # Sort by name instead of coordinate.
         args.append("-n")
-    if temp_dir:
-        # Write temporary files to this directory.
-        args.extend(["-T", temp_dir])
+    # Write temporary files with this prefix.
+    if tmp_pfx is None and xam_out is not None:
+        tmp_pfx = xam_out.with_suffix("")
+    if tmp_pfx is not None:
+        args.extend(["-T", tmp_pfx])
     if xam_out:
         args.extend(["-o", xam_out])
     else:
         # To increase speed, do not compress on stdout.
-        args.extend(["-l", 0])
+        args.append("-u")
     if xam_inp:
         args.append(xam_inp)
     return args_to_cmd(args)
 
 
-sort_xam = ShellCommand("sorting alignment map", sort_xam_cmd)
+run_sort_xam = ShellCommand("sorting alignment map", sort_xam_cmd)
+
+
+def collate_xam_cmd(xam_inp: Path | None,
+                    xam_out: Path | None, *,
+                    tmp_pfx: Path | None = None,
+                    fast: bool = False,
+                    n_procs: int = 1):
+    """ Collate a SAM or BAM file using `samtools collate`. """
+    args = [SAMTOOLS_CMD, "collate",
+            "-@", calc_extra_threads(n_procs)]
+    if fast:
+        # Use fast mode (outputs primary alignments only).
+        args.append("-f")
+    # Write temporary files with this prefix.
+    if tmp_pfx is None and xam_out is not None:
+        tmp_pfx = xam_out.with_suffix("")
+    if tmp_pfx is not None:
+        args.extend(["-T", tmp_pfx])
+    if xam_out:
+        args.extend(["-o", xam_out])
+    else:
+        # Output to stdout.
+        args.append("-O")
+        # To increase speed, do not compress on stdout.
+        args.append("-u")
+    # samtools collate requires an input argument; - means to read from
+    # standard input.
+    args.append(xam_inp if xam_inp else "-")
+    return args_to_cmd(args)
 
 
 def view_xam_cmd(xam_inp: Path | None,
@@ -94,9 +130,9 @@ def view_xam_cmd(xam_inp: Path | None,
                  cram: bool = False,
                  with_header: bool = False,
                  only_header: bool = False,
-                 min_mapq: int | None = None,
-                 flags_req: int | None = None,
-                 flags_exc: int | None = None,
+                 min_mapq: int = 0,
+                 flags_req: int = 0,
+                 flags_exc: int = 0,
                  ref: str | None = None,
                  end5: int | None = None,
                  end3: int | None = None,
@@ -105,20 +141,31 @@ def view_xam_cmd(xam_inp: Path | None,
     """ Convert between SAM and BAM formats, extract reads aligning to a
     specific reference/section, and filter by flag and mapping quality
     using `samtools view`. """
-    args = [SAMTOOLS_CMD, "view", "-@", n_procs - 1]
+    args = [SAMTOOLS_CMD, "view",
+            "-@", calc_extra_threads(n_procs)]
     # Read filters
-    if min_mapq is not None:
+    if min_mapq:
         # Require minimum mapping quality.
         args.extend(["-q", min_mapq])
-    if flags_req is not None:
+    if flags_req:
         # Require these flags.
         args.extend(["-f", flags_req])
-    if flags_exc is not None:
+    if flags_exc:
         # Exclude these flags.
         args.extend(["-F", flags_exc])
+    # Header
+    if with_header:
+        args.append("-h")
+    if only_header:
+        args.append("-H")
+    # Reference file
+    if refs_file:
+        args.extend(["-T", refs_file])
     # Output format
     if cram:
         args.append("-C")
+        if sam:
+            logger.warning("Both SAM and CRAM flags were set: using CRAM")
         if bam:
             logger.warning("Both BAM and CRAM flags were set: using CRAM")
         if not refs_file:
@@ -127,13 +174,6 @@ def view_xam_cmd(xam_inp: Path | None,
         args.append("-b")
         if sam:
             logger.warning("Both BAM and SAM flags were set: using BAM")
-    if with_header:
-        args.append("-h")
-    if only_header:
-        args.append("-H")
-    # Reference file
-    if refs_file:
-        args.extend(["-T", refs_file])
     # Input and output files
     if xam_out:
         args.extend(["-o", xam_out])
@@ -143,7 +183,7 @@ def view_xam_cmd(xam_inp: Path | None,
     if xam_inp:
         args.append(xam_inp)
     # Reference and section specification
-    if ref is not None:
+    if ref:
         if end5 is not None and end3 is not None:
             # View only reads aligning to a section of this reference.
             args.append(f"{ref}:{end5}-{end3}")
@@ -159,12 +199,10 @@ def view_xam_cmd(xam_inp: Path | None,
     return args_to_cmd(args)
 
 
-run_view_xam = ShellCommand("viewing alignment map", view_xam_cmd)
-
-
 def flagstat_cmd(xam_inp: Path | None, *, n_procs: int = 1):
     """ Compute the statistics with `samtools flagstat`. """
-    args = [SAMTOOLS_CMD, "flagstat", "-@", n_procs - 1]
+    args = [SAMTOOLS_CMD, "flagstat",
+            "-@", calc_extra_threads(n_procs)]
     if xam_inp:
         args.append(xam_inp)
     return args_to_cmd(args)
@@ -187,21 +225,42 @@ run_flagstat = ShellCommand("computing flagstats",
 def count_single_paired(flagstats: dict):
     """ Count the records in a SAM/BAM file given an output dict from
     `get_flagstats()`. """
-    mapped, _ = flagstats["mapped"]
-    # Count paired-end reads with both mates in the file.
-    paired_self_mate, _ = flagstats["with itself and mate mapped"]
-    paired_two, extra = divmod(paired_self_mate, 2)
+    mapped, _ = flagstats["primary mapped"]
+    # Count properly paired reads.
+    paired_end_reads_proper, _ = flagstats["properly paired"]
+    paired_end_pairs_proper, extra = divmod(paired_end_reads_proper, 2)
     if extra:
-        raise ValueError(f"Reads with themselves and their mates mapped must "
-                         f"be even, but got {paired_self_mate}")
-    # Count paired-end reads with only one mate in the file.
-    paired_one, _ = flagstats["singletons"]
+        raise ValueError("Number of properly paired reads must be even, "
+                         f"but got {paired_end_reads_proper}")
+    # Count improper paired-end reads (either only one mate exists or
+    # both mates exist but did not pair properly with each other).
+    paired_end_reads_both_mates, _ = flagstats["with itself and mate mapped"]
+    paired_end_reads_both_mates_improper = (paired_end_reads_both_mates
+                                            - paired_end_reads_proper)
+    if paired_end_reads_both_mates_improper < 0:
+        raise ValueError(
+            "Number of paired-end reads with both mates mapped and paired "
+            "properly with each other must be no more than the number of "
+            "paired-end reads with both mates mapped (though not necessarily "
+            f"with each other), but got {paired_end_reads_proper} "
+            f"> {paired_end_reads_both_mates}, which indicates a bug"
+        )
+    paired_end_reads_one_mate, _ = flagstats["singletons"]
+    paired_end_reads_improper = (paired_end_reads_both_mates_improper
+                                 + paired_end_reads_one_mate)
     # Count single-end reads.
-    singles = mapped - (paired_one + paired_self_mate)
-    logger.debug(f"Single-end: {singles}\n"
-                 f"Paired-end, one mate: {paired_one}\n"
-                 f"Paired-end, two mates: {paired_two}")
-    return paired_two, paired_one, singles
+    paired_end_reads = paired_end_reads_proper + paired_end_reads_improper
+    single_end_reads = mapped - paired_end_reads
+    if single_end_reads < 0:
+        raise ValueError(
+            "Number of paired-end reads must be no more than the number of "
+            f"mapped reads in total, but got {paired_end_reads} > {mapped}, "
+            "which indicates a bug"
+        )
+    logger.detail(f"Proper pairs: {paired_end_pairs_proper}\n"
+                  f"Other paired-end reads: {paired_end_reads_improper}\n"
+                  f"Single-end reads: {single_end_reads}")
+    return paired_end_pairs_proper, paired_end_reads_improper, single_end_reads
 
 
 def count_total_reads(flagstats: dict):
@@ -221,8 +280,9 @@ def xam_paired(flagstats: dict):
                          f"(n = {paired_one + paired_two}) reads")
     # The pairing status cannot be determined if there are no reads.
     if not paired and not single:
-        return None
-    # Otherwise, return True if paired-end and False if single-end.
+        logger.warning("Got 0 reads: neither single-end nor paired-end")
+    # Return True if definitely paired-end, False if single-end or if
+    # there are no reads.
     return paired
 
 
@@ -252,8 +312,11 @@ run_idxstats = ShellCommand("counting reads for each reference",
 
 def ref_header_cmd(xam_inp: Path, *, n_procs: int):
     """ Get the header line for each reference. """
-    return view_xam_cmd(xam_inp, None,
-                        sam=True, only_header=True, n_procs=n_procs)
+    return view_xam_cmd(xam_inp,
+                        None,
+                        sam=True,
+                        only_header=True,
+                        n_procs=n_procs)
 
 
 def parse_ref_header(process: CompletedProcess):
@@ -278,31 +341,28 @@ run_ref_header = ShellCommand("getting header line for each reference",
                               opath=False)
 
 
-def xam_to_fq_cmd(xam_inp: Path | None,
-                  fq_out: Path | None, *,
-                  interleaved: bool = False,
-                  n_procs: int = 1):
-    """ Convert a XAM file to a FASTQ file using `samtools fastq`. """
-    args = [SAMTOOLS_CMD, "fastq", "-@", n_procs - 1, "-n"]
-    if fq_out:
-        if xam_paired(run_flagstat(xam_inp, n_procs=n_procs)):
-            if interleaved:
-                # Interleave first and second reads in one file.
-                args.extend(["-o", fq_out.with_suffix(path.FQ_EXTS[0])])
-            else:
-                # Output first and second reads in separate files.
-                args.extend(["-1", fq_out.with_suffix(path.FQ1_EXTS[0]),
-                             "-2", fq_out.with_suffix(path.FQ2_EXTS[0])])
-        else:
-            # Output single-end reads in one file.
-            args.extend(["-0", fq_out.with_suffix(path.FQ_EXTS[0])])
-    if xam_inp:
-        args.append(xam_inp)
+def xam_to_fastq_cmd(xam_inp: Path | None,
+                     fq_out: Path | None, *,
+                     flags_req: int | None = None,
+                     flags_exc: int | None = None,
+                     label_12: bool = False,
+                     n_procs: int = 1):
+    """ Convert XAM format to FASTQ format, and filter by flags. """
+    args = [SAMTOOLS_CMD, "fastq",
+            "-@", calc_extra_threads(n_procs)]
+    if flags_req is not None:
+        # Require these flags.
+        args.extend(["-f", flags_req])
+    if flags_exc is not None:
+        # Exclude these flags.
+        args.extend(["-F", flags_exc])
+    if not label_12:
+        # Do not add /1 or /2 labels to names of paired-end reads.
+        args.append("-n")
+    args.append(xam_inp if xam_inp is not None else "-")
+    if fq_out is not None:
+        args.extend([">", fq_out])
     return args_to_cmd(args)
-
-
-run_xam_to_fq = ShellCommand("deconstructing alignment map",
-                             xam_to_fq_cmd)
 
 ########################################################################
 #                                                                      #

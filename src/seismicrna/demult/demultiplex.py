@@ -7,7 +7,7 @@ from pathlib import Path
 import fastqsplitter
 import pandas as pd
 
-from ..align.fqops import FastqUnit
+from ..align.fqunit import FastqUnit
 from ..core.arg import (opt_barcode_end,
                         opt_barcode_start,
                         opt_parallel_demultiplexing,
@@ -16,11 +16,11 @@ from ..core.arg import (opt_barcode_end,
                         opt_index_tolerence,
                         opt_demulti_overwrite,
                         arg_fasta,
-                        opt_sections_file,
+                        opt_mask_sections_file,
                         opt_fastqx,
                         opt_refs_meta,
-                        opt_temp_dir,
-                        opt_keep_temp, )
+                        opt_tmp_pfx,
+                        opt_keep_tmp, )
 
 # from scipy import signal
 
@@ -29,7 +29,7 @@ params = [
     # Inputs
     arg_fasta,
     opt_fastqx,
-    opt_sections_file,
+    opt_mask_sections_file,
     opt_barcode_start,
     opt_barcode_end,
 
@@ -40,8 +40,8 @@ params = [
     opt_index_tolerence,
     opt_demulti_overwrite,
     opt_refs_meta,
-    opt_temp_dir,
-    opt_keep_temp,
+    opt_tmp_pfx,
+    opt_keep_tmp,
 
 ]
 
@@ -459,7 +459,7 @@ def make_dict_from_fasta(fasta_path) -> dict:
 
 
 """
-input csv, sections_file that represents each sequence to be dumultiplexed with many different coloumns 
+input csv, mask_sections_file that represents each sequence to be dumultiplexed with many different coloumns 
 
 workspace directory that demultiplexing is being done in 
 
@@ -474,10 +474,11 @@ this whole method could be replaced with a dataframe that organizes all of these
 
 def make_sequence_objects_from_csv(input_csv, barcode_start, barcode_end, fasta, fastq1_path, fastq2_path, paired,
                                    workspace) -> dict:
+    
     sequence_object_dict = {}
     fasta_dict = make_dict_from_fasta(fasta)
     if (input_csv == ""):
-
+        print("rip")
         for name in fasta_dict.keys():
             seq = fasta_dict[name]
             rev_seq = reverse_compliment(seq)
@@ -517,7 +518,7 @@ def make_sequence_objects_from_csv(input_csv, barcode_start, barcode_end, fasta,
         # sequence_object_dict={}
         cols = set(df.columns)
 
-        if ("Barcode5" not in cols):
+        if ("Barcode5" not in cols and barcode_start==-1):
             raise Exception("no barcode info given")
 
         for x in df.index:
@@ -526,12 +527,9 @@ def make_sequence_objects_from_csv(input_csv, barcode_start, barcode_end, fasta,
             seq = fasta_dict[name]
             rev_seq = reverse_compliment(seq)
 
-            if (barcode_start == barcode_end):
-                barcode_start = df.at[x, "Barcode5"]
-                barcode_end = df.at[x, "Barcode3"]
-                bc = seq[barcode_start:barcode_end]
-            else:
-                bc = seq[barcode_start:barcode_end]
+            barcode_start = df.at[x, "Barcode5"]
+            barcode_end = df.at[x, "Barcode3"]
+            bc = seq[barcode_start:barcode_end]
             rev_barcode = reverse_compliment(bc)
             rev_bc_start = rev_seq.index(rev_barcode)
             rev_bc_end = rev_bc_start + len(rev_barcode)
@@ -969,7 +967,7 @@ def resolve_or_analyze_multigrepped_reads(union_sets: dict, remove: bool = True,
     pass
 
 
-def create_report(sequence_objects: dict, fq1: str, fq2: str, working_directory: str, unioned_sets: dict):
+def create_report(sequence_objects: dict, fq1: str, fq2: str, working_directory: str, unioned_sets: dict,sample_name:str):
     orginal_len = {}
     mixed_total_dict = {}
 
@@ -1027,12 +1025,12 @@ def create_report(sequence_objects: dict, fq1: str, fq2: str, working_directory:
     df["total_read_count"] = len_col
 
     print(working_directory + "demultiplex_info.csv")
-    df.to_csv(working_directory + "demultiplex_info.csv", index=False)
+    df.to_csv(working_directory + sample_name+"_demultiplex_info.csv", index=False)
 
 
 """
 split is default to 10. disregarding extremes, the higher the split the lighter the memeory load
-sections_file csv 
+mask_sections_file csv 
     each construct must have a secondary signiture start index and len in order to process, 
     barcode given in main arguements 
 """
@@ -1046,7 +1044,7 @@ sections_file csv
 
 def demultiplex_run(refs_file_csv, demulti_workspace, report_folder, fq_unit: FastqUnit, fasta, barcode_start=0,
                     barcode_end=0, split: int = 10, clipped: int = 0, rev_clipped: int = 0, index_tolerance: int = 0,
-                    parallel: bool = False, mismatch_tolerence: int = 0, overwrite: bool = False, keep_temp:bool=True):
+                    parallel: bool = False, mismatch_tolerence: int = 0, overwrite: bool = False, keep_tmp:bool=True):
     sample_name = fq_unit.sample
     mixed_fastq1, mixed_fastq2 = (fq_unit.paths.values())  # only works if the FASTQ has paired-end reads in two separate files
     mixed_fastq1=str(mixed_fastq1)
@@ -1144,7 +1142,7 @@ def demultiplex_run(refs_file_csv, demulti_workspace, report_folder, fq_unit: Fa
     """
     # sequence_objects:dict,fq1:str,fq2:str,working_directory:str,unioned_sets:dict)
     print("creating report!!!")
-    create_report(sequence_objects, mixed_fastq1, mixed_fastq2, report_folder, unioned_sets_dictionary)
+    create_report(sequence_objects, mixed_fastq1, mixed_fastq2, report_folder, unioned_sets_dictionary,sample_name)
 
     return (), (), (report_folder + sample_name + "/",)
 

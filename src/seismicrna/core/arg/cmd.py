@@ -1,35 +1,23 @@
-"""
-
-Command Core Module
-
-========================================================================
-
-Define the names of the commands.
-
-------------------------------------------------------------------------
-
-"""
-
-
 CMD_WORKFLOW = "wf"
 CMD_DEMULT = "demult"
-CMD_QC = "qc"
 CMD_ALIGN = "align"
 CMD_REL = "relate"
 CMD_POOL = "pool"
 CMD_MASK = "mask"
 CMD_CLUSTER = "cluster"
-CMD_ADDCLUST = "+addclust"
-CMD_DELCLUST = "+delclust"
 CMD_JOIN = "join"
 CMD_TABLE = "table"
 CMD_FOLD = "fold"
 CMD_GRAPH = "graph"
 CMD_EXPORT = "export"
 CMD_LISTPOS = "+listpos"
+CMD_SPLITBAM = "+splitbam"
 CMD_CLEANFA = "+cleanfa"
 CMD_RENUMCT = "+renumct"
+CMD_CT2DB = "+ct2db"
+CMD_DB2CT = "+db2ct"
 CMD_SIM = "+sim"
+CMD_DATAPATH = "+datapath"
 CMD_TEST = "+test"
 
 ########################################################################

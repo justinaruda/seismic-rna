@@ -1,54 +1,28 @@
-"""
-
-CT Renumbering Module
-========================================================================
-
-
-"""
-
 from collections import defaultdict
-from logging import getLogger
 from pathlib import Path
 
 from click import command
 
 from ..core import path
 from ..core.arg import (CMD_RENUMCT,
-                        docdef,
                         opt_ct_pos_5,
                         opt_inplace,
                         opt_out_dir,
                         opt_force,
-                        opt_max_procs,
-                        opt_parallel)
-from ..core.parallel import dispatch
+                        opt_max_procs)
+from ..core.logs import logger
 from ..core.rna import renumber_ct as renumber_ct
-
-logger = getLogger(__name__)
-
-params = [
-    opt_ct_pos_5,
-    opt_inplace,
-    opt_out_dir,
-    opt_force,
-    opt_max_procs,
-    opt_parallel
-]
+from ..core.run import run_func
+from ..core.task import dispatch
 
 
-@command(CMD_RENUMCT, params=params)
-def cli(*args, **kwargs):
-    """ Renumber connectivity table (CT) files given a 5' position. """
-    return run(*args, **kwargs)
-
-
-@docdef.auto()
-def run(ct_pos_5: tuple[tuple[str, int], ...],
+@run_func(CMD_RENUMCT)
+def run(*,
+        ct_pos_5: tuple[tuple[str, int], ...],
         inplace: bool,
         out_dir: str,
         force: bool,
-        max_procs: int,
-        parallel: bool):
+        max_procs: int):
     """ Renumber connectivity table (CT) files given a 5' position. """
     # For each start position, find all files to renumber.
     start_files = {start: list(path.find_files(Path(files),
@@ -82,10 +56,24 @@ def run(ct_pos_5: tuple[tuple[str, int], ...],
     # Renumber the files; if modifying in-place, force must be True.
     return dispatch(renumber_ct,
                     max_procs,
-                    parallel,
                     args=args,
                     kwargs=dict(force=force or inplace),
                     pass_n_procs=False)
+
+
+params = [
+    opt_ct_pos_5,
+    opt_inplace,
+    opt_out_dir,
+    opt_force,
+    opt_max_procs,
+]
+
+
+@command(CMD_RENUMCT, params=params)
+def cli(*args, **kwargs):
+    """ Renumber connectivity table (CT) files given a 5' position. """
+    return run(*args, **kwargs)
 
 ########################################################################
 #                                                                      #

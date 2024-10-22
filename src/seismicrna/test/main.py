@@ -1,28 +1,21 @@
-"""
-
-Testing Main Module
-
-========================================================================
-
-This module is the entry point for the command line interface. Running
-
-$ seismic [OPTIONS] command [OPTIONS] [ARGS]
-
-calls the function cli() defined in this module.
-
-"""
-
 import unittest as ut
 from os.path import dirname
 
 from click import command
 
-from seismicrna.core.arg import CMD_TEST, docdef, opt_verbose
+from seismicrna.core.arg import CMD_TEST, opt_verbose
+from seismicrna.core.logs import Level, restore_config, set_config
+from seismicrna.core.run import run_func
 
 
-@docdef.auto()
+@run_func(CMD_TEST, default=None)
+@restore_config
 def run(verbose: int):
     """ Run all unit tests. """
+    # Write no log file, suppress warnings, and halt on errors.
+    set_config(verbosity=Level.ERROR,
+               log_file_path=None,
+               raise_on_error=True)
     # Discover all unit test modules.
     main_dir = dirname(dirname(__file__))
     # The argument top_level_dir=dirname(main_dir) is needed to make
@@ -42,7 +35,7 @@ params = [opt_verbose]
 
 @command(CMD_TEST, params=params)
 def cli(**kwargs):
-    """ Test if SEISMIC-RNA is working properly. """
+    """ Run all unit tests. """
     return run(**kwargs)
 
 

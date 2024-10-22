@@ -1,13 +1,7 @@
-"""
-Version information for SEISMIC-RNA
-"""
-
 import re
-from logging import getLogger
 
-logger = getLogger(__name__)
 
-__version__ = "0.16.0a"
+__version__ = "0.22.0dev"
 
 
 def parse_version(version: str = __version__):

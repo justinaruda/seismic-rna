@@ -11,7 +11,7 @@ from string import printable
 
 import numpy as np
 
-from ..xna import XNA, DNA, RNA, expand_degenerate_seq
+from seismicrna.core.seq.xna import XNA, DNA, RNA, expand_degenerate_seq
 
 
 class TestDNA(ut.TestCase):
@@ -110,7 +110,8 @@ class TestDNA(ut.TestCase):
         """ Test whether invalid characters raise ValueError. """
         for char in printable:
             if char not in "ACGTNacgtn":
-                self.assertRaisesRegex(ValueError, f"Invalid DNA bases:",
+                self.assertRaisesRegex(ValueError,
+                                       "Invalid DNA bases:",
                                        DNA, char)
 
     def test_bool(self):
@@ -118,6 +119,81 @@ class TestDNA(ut.TestCase):
         self.assertFalse(DNA(""))
         for length in range(1, 10):
             self.assertTrue(DNA.random(length))
+
+    def test_kmers(self):
+        seq = DNA("")
+        with self.subTest(n=0, k=-1):
+            k = -1
+            self.assertRaisesRegex(ValueError,
+                                   f"k must be ≥ 0, but got {k}",
+                                   lambda: list(seq.kmers(k)))
+        with self.subTest(n=0, k=0):
+            k = 0
+            expect = [DNA("")]
+            self.assertEqual(list(seq.kmers(k)), expect)
+        with self.subTest(n=0, k=1):
+            k = 1
+            expect = []
+            self.assertEqual(list(seq.kmers(k)), expect)
+        with self.subTest(n=0, k=2):
+            k = 1
+            expect = []
+            self.assertEqual(list(seq.kmers(k)), expect)
+        seq = DNA("A")
+        with self.subTest(n=1, k=0):
+            k = 0
+            expect = [DNA(""), DNA("")]
+            self.assertEqual(list(seq.kmers(k)), expect)
+        with self.subTest(n=1, k=1):
+            k = 1
+            expect = [DNA("A")]
+            self.assertEqual(list(seq.kmers(k)), expect)
+        with self.subTest(n=1, k=2):
+            k = 2
+            expect = []
+            self.assertEqual(list(seq.kmers(k)), expect)
+        seq = DNA("CT")
+        with self.subTest(n=2, k=1):
+            k = 1
+            expect = [DNA("C"), DNA("T")]
+            self.assertEqual(list(seq.kmers(k)), expect)
+        with self.subTest(n=2, k=2):
+            k = 2
+            expect = [DNA("CT")]
+            self.assertEqual(list(seq.kmers(k)), expect)
+        seq = DNA("GTA")
+        with self.subTest(n=3, k=1):
+            k = 1
+            expect = [DNA("G"), DNA("T"), DNA("A")]
+            self.assertEqual(list(seq.kmers(k)), expect)
+        with self.subTest(n=3, k=2):
+            k = 2
+            expect = [DNA("GT"), DNA("TA")]
+            self.assertEqual(list(seq.kmers(k)), expect)
+        with self.subTest(n=3, k=3):
+            k = 3
+            expect = [DNA("GTA")]
+            self.assertEqual(list(seq.kmers(k)), expect)
+        seq = DNA("CATG")
+        with self.subTest(n=4, k=2):
+            k = 2
+            expect = [DNA("CA"), DNA("AT"), DNA("TG")]
+            self.assertEqual(list(seq.kmers(k)), expect)
+        with self.subTest(n=4, k=3):
+            k = 3
+            expect = [DNA("CAT"), DNA("ATG")]
+            self.assertEqual(list(seq.kmers(k)), expect)
+        with self.subTest(n=4, k=4):
+            k = 4
+            expect = [DNA("CATG")]
+            self.assertEqual(list(seq.kmers(k)), expect)
+
+    def test_contains(self):
+        ref = DNA.random(20)
+        for k in range(5):
+            for query in expand_degenerate_seq(DNA("N" * k)):
+                self.assertEqual(query in ref, str(query) in str(ref))
+                self.assertFalse(str(query) in ref)
 
 
 class TestRNA(ut.TestCase):
@@ -319,6 +395,10 @@ class TestExpandDegenerateSeq(ut.TestCase):
                                         "CCGA", "CCGC", "CCGG", "CCGT",
                                         "GCGA", "GCGC", "GCGG", "GCGT",
                                         "TCGA", "TCGC", "TCGG", "TCGT"])))
+
+
+if __name__ == "__main__":
+    ut.main()
 
 ########################################################################
 #                                                                      #

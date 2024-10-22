@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 from functools import cached_property
 from itertools import chain
-from logging import getLogger
 from pathlib import Path
 from typing import Any, Callable, Generator, Iterable
 
@@ -10,39 +9,32 @@ from click import Argument, Option
 from plotly import graph_objects as go
 from plotly.subplots import make_subplots
 
+from ..cluster.table import ClusterPosTableLoader, ClusterAbundanceTableLoader
 from ..core import path
-from ..core.arg import (CLUST_INDIV,
-                        CLUST_ORDER,
-                        CLUST_UNITE,
+from ..core.arg import (NO_GROUP,
+                        GROUP_BY_K,
+                        GROUP_ALL,
                         arg_input_path,
                         opt_rels,
                         opt_use_ratio,
                         opt_quantile,
                         opt_cgroup,
-                        opt_out_dir,
                         opt_csv,
                         opt_html,
+                        opt_svg,
                         opt_pdf,
+                        opt_png,
                         opt_force,
-                        opt_max_procs,
-                        opt_parallel)
+                        opt_max_procs)
 from ..core.header import Header, format_clust_names
 from ..core.seq import DNA
+from ..core.table import Table, PositionTable
 from ..core.write import need_write
-from ..table.base import (Table,
-                          PosTable,
-                          RelTable,
-                          MaskTable,
-                          ClustTable)
-from ..table.load import (find_pos_tables,
-                          find_read_tables,
-                          load_pos_table,
-                          load_read_table)
-
-logger = getLogger(__name__)
+from ..mask.table import MaskPosTableLoader, MaskReadTableLoader
+from ..relate.table import RelatePositionTableLoader, RelateReadTableLoader
 
 # Define actions.
-ACTION_REL = "related"
+ACTION_REL = "all"
 ACTION_MASK = "masked"
 ACTION_CLUST = "clustered"
 
@@ -50,39 +42,39 @@ ACTION_CLUST = "clustered"
 LINKER = "__and__"
 
 
-def make_index(header: Header,
-               order: int | None,
-               clust: int | None,
-               order_clust_list: list[tuple[int, int]] | None = None):
+def make_tracks(header: Header, k: int | None,
+                clust: int | None,
+                k_clust_list: list[tuple[int, int]] | None = None):
     """ Make an index for the rows or columns of a graph. """
-    if header.max_order == 0:
+    if not header.clustered():
         # If there are no clusters, then no clusters must be selected.
-        if order or clust:
-            raise ValueError(f"Cannot select orders or clusters from {header}")
+        if k or clust:
+            raise ValueError(f"Cannot select ks or clusters from {header}")
         return header.clusts
     # If there are any relationship names in the index, then drop them
-    # and then select the order(s) and cluster(s) for the index.
-    return header.modified(rels=()).select(order=order,
-                                           clust=clust,
-                                           order_clust_list=order_clust_list)
+    # and then select the k(s) and cluster(s) for the index.
+    return header.get_clust_header().select(k=k,
+                                            clust=clust,
+                                            k_clust_list=k_clust_list
+                                            ).to_list()
 
 
-def _index_size(index: pd.Index | None):
-    return index.size if index is not None else 1
+def _track_count(tracks: list[tuple[int, int]] | None):
+    return len(tracks) if tracks is not None else 1
 
 
-def _index_titles(index: pd.Index | None):
-    return (format_clust_names(index, allow_zero=True, allow_duplicates=False)
-            if index is not None
+def _track_titles(tracks: list[tuple[int, int]] | None):
+    return (format_clust_names(tracks, allow_duplicates=False)
+            if tracks is not None
             else None)
 
 
 def get_action_name(table: Table):
-    if isinstance(table, RelTable):
+    if isinstance(table, (RelatePositionTableLoader, RelateReadTableLoader)):
         return ACTION_REL
-    if isinstance(table, MaskTable):
+    if isinstance(table, (MaskPosTableLoader, MaskReadTableLoader)):
         return ACTION_MASK
-    if isinstance(table, ClustTable):
+    if isinstance(table, (ClusterPosTableLoader, ClusterAbundanceTableLoader)):
         return ACTION_CLUST
     raise TypeError(f"Invalid table type: {type(table).__name__}")
 
@@ -91,32 +83,50 @@ def make_title_action_sample(action: str, sample: str):
     return f"{action} reads from sample {repr(sample)}"
 
 
-def make_path_subject(action: str, order: int | None, clust: int | None):
+def make_path_subject(action: str, k: int | None, clust: int | None):
     if action == ACTION_REL or action == ACTION_MASK:
-        if order or clust:
-            raise ValueError(f"For {action} data, order and clust must both "
-                             f"be 0 or None, but got {order} and {clust}")
+        if k or clust:
+            raise ValueError(f"For {action} data, k and clust must both "
+                             f"be 0 or None, but got {k} and {clust}")
         return action
     if action == ACTION_CLUST:
         return "-".join(map(str, [action,
-                                  order if order is not None else "x",
+                                  k if k is not None else "x",
                                   clust if clust is not None else "x"]))
     raise ValueError(f"Invalid action: {repr(action)}")
 
 
 def cgroup_table(table: Table, cgroup: str):
-    if cgroup == CLUST_INDIV:
+    if cgroup == NO_GROUP:
         # One file per cluster, with no subplots.
-        return [dict(order=order, clust=clust)
-                for order, clust in table.header.clusts]
-    elif cgroup == CLUST_ORDER:
-        # One file per order, with one subplot per cluster.
-        return [dict(order=order, clust=None)
-                for order in sorted(table.header.orders)]
-    elif cgroup == CLUST_UNITE:
-        # One file, with one subplot per cluster for all orders.
-        return [dict(order=None, clust=None)]
+        return [dict(k=k, clust=clust)
+                for k, clust in table.header.clusts]
+    elif cgroup == GROUP_BY_K:
+        # One file per k, with one subplot per cluster.
+        return [dict(k=k, clust=None)
+                for k in sorted(table.header.ks)]
+    elif cgroup == GROUP_ALL:
+        # One file, with one subplot per cluster.
+        return [dict(k=None, clust=None)]
     raise ValueError(f"Invalid value for cgroup: {repr(cgroup)}")
+
+
+class Annotation(object):
+    """ Text annotation in a graph. """
+
+    def __init__(self,
+                 row: int,
+                 col: int,
+                 x: float,
+                 y: float,
+                 text: str,
+                 **kwargs):
+        self.row = row
+        self.col = col
+        self.x = x
+        self.y = y
+        self.text = text
+        self.kwargs = kwargs
 
 
 class GraphBase(ABC):
@@ -141,14 +151,11 @@ class GraphBase(ABC):
                 path.GraphSeg)
 
     def __init__(self, *,
-                 out_dir: str | Path,
                  use_ratio: bool,
                  quantile: float):
         """
         Parameters
         ----------
-        out_dir: str | Path
-            Path of the top-level output directory for all graph files.
         use_ratio: bool
             Use the ratio of the number of times the relationship occurs
             to the number of occurrances of another kind of relationship
@@ -159,7 +166,6 @@ class GraphBase(ABC):
             quantile and then winsorize them to the interval [0, 1].
             Passing 0.0 disables normalization and winsorization.
         """
-        self.top = Path(out_dir)
         self.use_ratio = use_ratio
         self.quantile = quantile
 
@@ -177,6 +183,11 @@ class GraphBase(ABC):
     @abstractmethod
     def title_action_sample(self) -> str:
         """ Action and sample for the title. """
+
+    @property
+    @abstractmethod
+    def top(self) -> Path:
+        """ Path of the top-level output directory for all files. """
 
     @property
     @abstractmethod
@@ -252,7 +263,7 @@ class GraphBase(ABC):
         """ Keyword arguments for self._fetch_data. """
         return dict(rel=self.rel_names)
 
-    def _fetch_data(self, table: PosTable, **kwargs):
+    def _fetch_data(self, table: PositionTable, **kwargs):
         """ Fetch data from the table. """
         kwargs = self._fetch_kwargs | kwargs
         return (table.fetch_ratio(quantile=self.quantile, **kwargs)
@@ -270,33 +281,33 @@ class GraphBase(ABC):
 
     @property
     @abstractmethod
-    def row_index(self) -> pd.Index | None:
-        """ Index of rows of subplots. """
+    def row_tracks(self) -> list[tuple[int, int]] | None:
+        """ Track for each row of subplots. """
 
     @property
     @abstractmethod
-    def col_index(self) -> pd.Index | None:
-        """ Index of columns of subplots. """
+    def col_tracks(self) -> list[tuple[int, int]] | None:
+        """ Track for each column of subplots. """
 
     @property
     def nrows(self):
         """ Number of rows of subplots. """
-        return _index_size(self.row_index)
+        return _track_count(self.row_tracks)
 
     @property
     def ncols(self):
         """ Number of columns of subplots. """
-        return _index_size(self.col_index)
+        return _track_count(self.col_tracks)
 
     @cached_property
     def row_titles(self):
         """ Titles of the rows. """
-        return _index_titles(self.row_index)
+        return _track_titles(self.row_tracks)
 
     @cached_property
     def col_titles(self):
         """ Titles of the columns. """
-        return _index_titles(self.col_index)
+        return _track_titles(self.col_tracks)
 
     @property
     @abstractmethod
@@ -307,6 +318,11 @@ class GraphBase(ABC):
     @abstractmethod
     def y_title(self) -> str:
         """ Title of the y-axis. """
+
+    @property
+    def annotations(self) -> list[Annotation]:
+        """ Text annotations for the figure. """
+        return list()
 
     @property
     def _subplots_params(self):
@@ -333,7 +349,8 @@ class GraphBase(ABC):
         """ Update the figure's layout. """
         figure.update_layout(title=self.title,
                              plot_bgcolor="#ffffff",
-                             paper_bgcolor="#ffffff")
+                             paper_bgcolor="#ffffff",
+                             showlegend=True)
         figure.update_xaxes(linewidth=1,
                             linecolor="#000000",
                             autorange=True)
@@ -341,12 +358,23 @@ class GraphBase(ABC):
                             linecolor="#000000",
                             autorange=True)
 
+    def _figure_annot(self, figure: go.Figure):
+        """ Annotate the figure. """
+        for annotation in self.annotations:
+            figure.add_annotation(row=annotation.row,
+                                  col=annotation.col,
+                                  x=annotation.x,
+                                  y=annotation.y,
+                                  text=annotation.text,
+                                  **annotation.kwargs)
+
     @cached_property
     def figure(self):
         """ Figure object. """
         figure = self._figure_init()
         self._figure_data(figure)
         self._figure_layout(figure)
+        self._figure_annot(figure)
         return figure
 
     def write_csv(self, force: bool):
@@ -364,22 +392,44 @@ class GraphBase(ABC):
             self.figure.write_html(file)
         return file
 
-    def write_pdf(self, force: bool):
-        """ Write the graph to a PDF file. """
-        file = self.get_path(path.PDF_EXT)
+    def _write_image(self, ext: str, force: bool):
+        """ Write the graph to an image file. """
+        file = self.get_path(ext)
         if need_write(file, force):
             self.figure.write_image(file)
         return file
 
-    def write(self, csv: bool, html: bool, pdf: bool, force: bool = False):
+    def write_svg(self, force: bool):
+        """ Write the graph to an SVG file. """
+        return self._write_image(path.SVG_EXT, force)
+
+    def write_pdf(self, force: bool):
+        """ Write the graph to a PDF file. """
+        return self._write_image(path.PDF_EXT, force)
+
+    def write_png(self, force: bool):
+        """ Write the graph to a PNG file. """
+        return self._write_image(path.PNG_EXT, force)
+
+    def write(self,
+              csv: bool,
+              html: bool,
+              svg: bool,
+              pdf: bool,
+              png: bool,
+              force: bool = False):
         """ Write the selected files. """
         files = list()
         if csv:
             files.append(self.write_csv(force))
         if html:
             files.append(self.write_html(force))
+        if svg:
+            files.append(self.write_svg(force))
         if pdf:
             files.append(self.write_pdf(force))
+        if png:
+            files.append(self.write_png(force))
         return files
 
     @cached_property
@@ -405,19 +455,8 @@ class GraphBase(ABC):
 class GraphWriter(ABC):
     """ Write the proper graph(s) for the table(s). """
 
-    @classmethod
-    @abstractmethod
-    def get_table_loader(cls) -> Callable[[Path], Table]:
-        """ Function to load table files. """
-
-    @classmethod
-    def load_table_file(cls, table_file: Path):
-        """ Load one table file. """
-        loader = cls.get_table_loader()
-        return loader(table_file)
-
-    def __init__(self, *table_files: Path):
-        self.table_files = list(table_files)
+    def __init__(self, *tables: Table):
+        self.tables = list(tables)
 
     @abstractmethod
     def iter_graphs(self, *args, **kwargs) -> Generator[GraphBase, None, None]:
@@ -427,26 +466,36 @@ class GraphWriter(ABC):
               *args,
               csv: bool,
               html: bool,
+              svg: bool,
               pdf: bool,
+              png: bool,
               force: bool,
               **kwargs):
         """ Generate and write every graph for the table. """
-        return list(chain(graph.write(csv=csv, html=html, pdf=pdf, force=force)
+        return list(chain(graph.write(csv=csv,
+                                      html=html,
+                                      svg=svg,
+                                      pdf=pdf,
+                                      png=png,
+                                      force=force)
                           for graph in self.iter_graphs(*args, **kwargs)))
 
 
-class PosGraphWriter(GraphWriter, ABC):
+def load_pos_tables(input_paths: Iterable[str | Path]):
+    """ Load position tables. """
+    paths = list(input_paths)
+    for table_type in [RelatePositionTableLoader,
+                       MaskPosTableLoader,
+                       ClusterPosTableLoader]:
+        yield from table_type.load_tables(paths)
 
-    @classmethod
-    def get_table_loader(cls):
-        return load_pos_table
 
-
-class ReadGraphWriter(GraphWriter, ABC):
-
-    @classmethod
-    def get_table_loader(cls):
-        return load_read_table
+def load_read_tables(input_paths: Iterable[str | Path]):
+    """ Load read tables. """
+    paths = list(input_paths)
+    for table_type in [RelateReadTableLoader,
+                       MaskReadTableLoader]:
+        yield from table_type.load_tables(paths)
 
 
 class GraphRunner(ABC):
@@ -468,13 +517,13 @@ class GraphRunner(ABC):
     def universal_output_params(cls):
         """ Universal parameters controlling the output graph. """
         return [opt_cgroup,
-                opt_out_dir,
                 opt_csv,
                 opt_html,
+                opt_svg,
                 opt_pdf,
+                opt_png,
                 opt_force,
-                opt_max_procs,
-                opt_parallel]
+                opt_max_procs]
 
     @classmethod
     def var_params(cls) -> list[Argument | Option]:
@@ -490,30 +539,30 @@ class GraphRunner(ABC):
 
     @classmethod
     @abstractmethod
-    def get_table_finder(cls) -> Callable[[tuple[str, ...]], Generator]:
+    def get_table_loader(cls) -> Callable[[tuple[str, ...]], Generator]:
         """ Function to find and filter table files. """
 
     @classmethod
     def list_table_files(cls, input_path: tuple[str, ...]):
         """ Find, filter, and list all table files from input files. """
-        finder = cls.get_table_finder()
+        finder = cls.get_table_loader()
         return list(finder(input_path))
 
     @classmethod
     @abstractmethod
     def run(cls,
-            input_path: tuple[str, ...],
+            input_path: tuple[str, ...], *,
             rels: tuple[str, ...],
             use_ratio: bool,
-            quantile: float, *,
+            quantile: float,
             cgroup: str,
-            out_dir: str,
             csv: bool,
             html: bool,
+            svg: bool,
             pdf: bool,
+            png: bool,
             force: bool,
             max_procs: int,
-            parallel: bool,
             **kwargs) -> list[Path]:
         """ Run graphing. """
 
@@ -521,15 +570,15 @@ class GraphRunner(ABC):
 class PosGraphRunner(GraphRunner, ABC):
 
     @classmethod
-    def get_table_finder(cls):
-        return find_pos_tables
+    def get_table_loader(cls):
+        return load_pos_tables
 
 
 class ReadGraphRunner(GraphRunner, ABC):
 
     @classmethod
-    def get_table_finder(cls):
-        return find_read_tables
+    def get_table_loader(cls):
+        return load_read_tables
 
 ########################################################################
 #                                                                      #

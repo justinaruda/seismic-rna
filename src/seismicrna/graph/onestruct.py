@@ -1,46 +1,47 @@
 from abc import ABC
 from functools import cached_property
-from logging import getLogger
 from pathlib import Path
 
-from .onetable import OneTableGraph, OneTableRunner
+from .base import cgroup_table
+from .onetable import OneTableGraph, OneTableRunner, OneTableWriter
 from .rel import OneRelGraph
 from ..core import path
-from ..core.arg import opt_struct_file, opt_struct_sect
+from ..core.arg import (opt_struct_file,
+                        opt_fold_sections_file,
+                        opt_fold_coords,
+                        opt_fold_primers,
+                        opt_fold_full)
+from ..core.logs import logger
 from ..core.rna import RNAState, from_ct
-
-logger = getLogger(__name__)
+from ..core.seq import DNA, RefSections
+from ..fold.main import find_foldable_tables
 
 
 class StructOneTableGraph(OneTableGraph, OneRelGraph, ABC):
     """ Graph of data from one Table applied to RNA structure(s). """
 
-    def __init__(self, *, struct_file: Path | None, struct_sect: str, **kwargs):
+    def __init__(self, *,
+                 struct_file: Path | None,
+                 struct_sect: str | None,
+                 **kwargs):
         super().__init__(**kwargs)
-        if struct_file is not None:
-            # Use a given CT file of an RNA structure, and determine the
-            # structure section name from the file path.
-            self._struct_file = struct_file
+        self._struct_file = struct_file
+        self._struct_sect = struct_sect
+
+    @property
+    def struct_sect(self):
+        """ Name of the section from which the structure comes. """
+        if self._struct_file is not None:
+            # Use the section from the given structure file.
             fields = path.parse(self._struct_file,
                                 path.RefSeg,
                                 path.SectSeg,
                                 path.ConnectTableSeg)
-            ref = fields[path.REF]
-            if ref != self.ref:
-                raise ValueError(f"Reference names differ in CT file ({ref}) "
-                                 f"and table file ({self.ref})")
-            self.struct_sect = fields[path.SECT]
-            if struct_sect and struct_sect != self.struct_sect:
-                logger.warning(f"Structure section names differ in CT file "
-                               f"({self.struct_sect}) and given struct_sect "
-                               f"argument ({struct_sect}); using the former")
-        else:
-            # Use the given structure section name if one was given,
-            # otherwise default to the section from which the data came.
-            self.struct_sect = struct_sect if struct_sect else self.sect
-            # The structure file will vary by RNA profile, so leave it
-            # blank for now.
-            self._struct_file = None
+            return fields[path.SECT]
+        if self._struct_sect is None:
+            raise ValueError("A structure section is required if no structure "
+                             "file is given")
+        return self._struct_sect
 
     def get_path_fields(self):
         fields = super().get_path_fields()
@@ -48,7 +49,7 @@ class StructOneTableGraph(OneTableGraph, OneRelGraph, ABC):
         fields[path.SECT] = self.struct_sect
         return fields
 
-    def _get_struct_file(self, profile: str):
+    def _get_struct_files(self, profile: str):
         """ Get the path of the CT file of RNA structures for a specific
         RNA profile. """
         if self._struct_file is not None:
@@ -72,7 +73,7 @@ class StructOneTableGraph(OneTableGraph, OneRelGraph, ABC):
     def _title_main(self):
         return [f"{self.what()} of structures "
                 f"for reference {repr(self.ref)} "
-                f"section {repr(self.struct_sect)} "
+                f"section {repr(self._struct_sect)} "
                 f"vs. {self.data_kind}s "
                 f"of {self.relationships} bases "
                 f"in {self.title_action_sample} "
@@ -82,26 +83,90 @@ class StructOneTableGraph(OneTableGraph, OneRelGraph, ABC):
         """ Yield each RNAProfile from the table. """
         yield from self.table.iter_profiles(quantile=self.quantile,
                                             rel=self.rel_name,
-                                            order=self.order,
+                                            k=self.k,
                                             clust=self.clust)
 
     def iter_states(self):
         """ Yield each RNAState. """
         for profile in self.iter_profiles():
-            ct_file = self._get_struct_file(profile.profile)
+            ct_file = self._get_struct_files(profile.profile)
             try:
                 for struct in from_ct(ct_file):
                     yield RNAState.from_struct_profile(struct, profile)
             except FileNotFoundError:
-                logger.error(f"Structure file {ct_file} does not exist; please "
-                             f"obtain the file, e.g. using seismic fold")
+                logger.error(f"Structure file {ct_file} does not exist; "
+                             "please obtain the file, e.g. using seismic fold")
+
+
+class StructOneTableWriter(OneTableWriter, ABC):
+
+    def iter_graphs(self,
+                    rels: tuple[str, ...],
+                    cgroup: str,
+                    struct_file: tuple[str, ...] = (),
+                    fold_coords: tuple[tuple[str, int, int], ...] = (),
+                    fold_primers: tuple[tuple[str, DNA, DNA], ...] = (),
+                    fold_sections_file: str | None = None,
+                    fold_full: bool = opt_fold_full.default,
+                    **kwargs):
+        struct_files = list()
+        for file in struct_file:
+            # Use a given CT file of an RNA structure, and determine the
+            # structure section name from the file path.
+            fields = path.parse(file,
+                                path.RefSeg,
+                                path.SectSeg,
+                                path.ConnectTableSeg)
+            ref = fields[path.REF]
+            if ref == self.table.ref:
+                struct_files.append(file)
+            else:
+                logger.warning(f"Skipped CT file {file} in section directory "
+                               f"{repr(path.SECT)} in reference directory "
+                               f"{repr(ref)}, which differs from the reference "
+                               f"name of the table file {repr(self.table.ref)}")
+        # Add the sections from the given coordinates/primers.
+        ref_sections = RefSections([(self.table.ref, self.table.refseq)],
+                                   sects_file=(Path(fold_sections_file)
+                                               if fold_sections_file
+                                               else None),
+                                   coords=fold_coords,
+                                   primers=fold_primers,
+                                   default_full=fold_full)
+        fold_sects = [section.name
+                      for section in ref_sections.list(self.table.ref)]
+        if not fold_sects:
+            # Add the table's section if no other sections were defined.
+            fold_sects.append(self.table.sect)
+        # Generate a graph for each cluster, relationship, and section.
+        for cparams in cgroup_table(self.table, cgroup):
+            kwparams = kwargs | cparams
+            for rels_group in rels:
+                for file in struct_files:
+                    yield self.get_graph(rels_group,
+                                         struct_file=file,
+                                         struct_sect=None,
+                                         **kwparams)
+                for sect in fold_sects:
+                    yield self.get_graph(rels_group,
+                                         struct_file=None,
+                                         struct_sect=sect,
+                                         **kwparams)
 
 
 class StructOneTableRunner(OneTableRunner, ABC):
 
     @classmethod
+    def get_table_loader(cls):
+        return find_foldable_tables
+
+    @classmethod
     def var_params(cls):
-        return super().var_params() + [opt_struct_file, opt_struct_sect]
+        return super().var_params() + [opt_struct_file,
+                                       opt_fold_sections_file,
+                                       opt_fold_coords,
+                                       opt_fold_primers,
+                                       opt_fold_full]
 
 ########################################################################
 #                                                                      #

@@ -3,11 +3,13 @@ from click import group
 from . import (aucroll,
                corroll,
                delprof,
+               giniroll,
                histpos,
                histread,
                profile,
                roc,
-               scatter)
+               scatter,
+               snrroll)
 from ..core.arg import CMD_GRAPH
 
 
@@ -21,11 +23,13 @@ def cli():
 for module in (aucroll,
                corroll,
                delprof,
+               giniroll,
                histpos,
                histread,
                profile,
                roc,
-               scatter):
+               scatter,
+               snrroll):
     cli.add_command(module.cli)
 
 ########################################################################

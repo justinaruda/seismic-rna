@@ -1,11 +1,32 @@
-from .batch import RelateRefseqBatch
-from .io import RelateBatchIO
-from .report import RelateReport
-from ..core.data import LoadedMutsDataset
+from functools import cached_property
+
+from .batch import RelateBatch
+from .io import QnamesBatchIO, RelateBatchIO
+from .report import RelateReport, PoolReport
+from ..core.data import (LoadedDataset,
+                         LoadedMutsDataset,
+                         LoadFunction,
+                         TallMutsDataset)
+
+
+class QnamesDataset(LoadedDataset):
+    """ Dataset of read names from the Relate step. """
+
+    @classmethod
+    def get_batch_type(cls):
+        return QnamesBatchIO
+
+    @classmethod
+    def get_report_type(cls):
+        return RelateReport
+
+    @property
+    def pattern(self):
+        return None
 
 
 class RelateDataset(LoadedMutsDataset):
-    """ Dataset from the Relate step. """
+    """ Dataset of mutations from the Relate step. """
 
     @classmethod
     def get_batch_type(cls):
@@ -19,18 +40,36 @@ class RelateDataset(LoadedMutsDataset):
     def pattern(self):
         return None
 
+    @cached_property
+    def paired(self):
+        """ Whether the reads are paired-end. """
+        if self.num_batches == 0:
+            return False
+        return self.get_batch(0).num_segments == 2
+
     def get_batch(self, batch: int):
         relate_batch = super().get_batch(batch)
-        # Add the reference sequence to the batch.
-        if (batch_nt := getattr(relate_batch, "max_pos")) != len(self.refseq):
-            raise ValueError(f"Reference sequence is {len(self.refseq)} nt, "
-                             f"but {relate_batch} has {batch_nt} nt")
-        # Add the other attributes to the batch.
-        kwargs = {
-            key: getattr(relate_batch, key)
-            for key in ["batch", "muts", "end5s", "mid5s", "mid3s", "end3s"]
-        }
-        return RelateRefseqBatch(refseq=self.refseq, sanitize=False, **kwargs)
+        return RelateBatch(batch=relate_batch.batch,
+                           seg_end5s=relate_batch.seg_end5s,
+                           seg_end3s=relate_batch.seg_end3s,
+                           muts=relate_batch.muts,
+                           section=self.section,
+                           sanitize=False)
+
+
+class PoolDataset(TallMutsDataset):
+    """ Load pooled batches of relationships. """
+
+    @classmethod
+    def get_report_type(cls):
+        return PoolReport
+
+    @classmethod
+    def get_dataset_load_func(cls):
+        return load_relate_dataset
+
+
+load_relate_dataset = LoadFunction(RelateDataset, PoolDataset)
 
 ########################################################################
 #                                                                      #

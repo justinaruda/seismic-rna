@@ -1,0 +1,63 @@
+name: Build and deploy documentation to GitHub Pages
+
+on:
+  # Runs on pushes targeting the main branch
+  push:
+    branches:
+      - main
+    paths:
+      - src/userdocs/**
+      - .github/workflows/build-deploy-docs.yml
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
+# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        # Ensure the workflow runs with bash (on GitHub Actions, Conda only works with bash)
+        shell: bash -el {0}
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v2
+      - name: Checkout this GitHub repository
+        uses: actions/checkout@v2
+      - name: Install SEISMIC-RNA from this repository
+        run: |
+          pip install .
+      - name: Install dependencies for building the documentation
+        run: |
+          pip install -r docs-requirements.txt
+      # Build the documentation using make.sh in src/userdocs.
+      - name: Build documentation
+        run: |
+          cd src/userdocs
+          bash make.sh
+          cd ../..
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+      # Upload the built documentation files, which are in docs.
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

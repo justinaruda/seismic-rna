@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from functools import cached_property
 from itertools import chain, combinations, product
-from logging import getLogger
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
@@ -13,17 +12,16 @@ from .base import (LINKER,
                    GraphWriter,
                    cgroup_table,
                    get_action_name,
-                   make_index,
+                   make_tracks,
                    make_title_action_sample,
-                   make_path_subject)
+                   make_path_subject,
+                   load_pos_tables)
 from .rel import OneRelGraph
-from ..core import path
-from ..core.arg import opt_comppair, opt_compself
-from ..core.parallel import dispatch
-from ..table.base import ClustTable, PosTable, Table
-from ..table.load import find_pos_tables, load_pos_table
-
-logger = getLogger(__name__)
+from ..cluster.table import ClusterTable
+from ..core.arg import opt_comppair, opt_compself, opt_out_dir
+from ..core.logs import logger
+from ..core.table import PositionTable, Table
+from ..core.task import dispatch
 
 # Index level names.
 SAMPLE_NAME = "Sample"
@@ -35,19 +33,21 @@ class TwoTableGraph(OneRelGraph, ABC):
     """ Graph of two Tables. """
 
     def __init__(self, *,
-                 table1: Table | PosTable,
-                 order1: int | None,
+                 out_dir: str | Path,
+                 table1: Table | PositionTable,
+                 k1: int | None,
                  clust1: int | None,
-                 table2: Table | PosTable,
-                 order2: int | None,
+                 table2: Table | PositionTable,
+                 k2: int | None,
                  clust2: int | None,
                  **kwargs):
         super().__init__(**kwargs)
+        self._top = Path(out_dir)
         self.table1 = table1
-        self.order1 = order1
+        self.k1 = k1
         self.clust1 = clust1
         self.table2 = table2
-        self.order2 = order2
+        self.k2 = k2
         self.clust2 = clust2
 
     def _get_common_attribute(self, name: str):
@@ -58,6 +58,10 @@ class TwoTableGraph(OneRelGraph, ABC):
             raise ValueError(f"Attribute {repr(name)} differs between "
                              f"tables 1 ({repr(attr1)}) and 2 ({repr(attr2)})")
         return attr1
+
+    @property
+    def top(self):
+        return self._top
 
     @property
     def sample1(self):
@@ -115,15 +119,15 @@ class TwoTableGraph(OneRelGraph, ABC):
     @cached_property
     def path_subject1(self):
         """ Name of subject 1. """
-        return (make_path_subject(self.action1, self.order1, self.clust1)
-                if isinstance(self.table1, ClustTable)
+        return (make_path_subject(self.action1, self.k1, self.clust1)
+                if isinstance(self.table1, ClusterTable)
                 else self.action1)
 
     @cached_property
     def path_subject2(self):
         """ Name of subject 2. """
-        return (make_path_subject(self.action2, self.order2, self.clust2)
-                if isinstance(self.table2, ClustTable)
+        return (make_path_subject(self.action2, self.k2, self.clust2)
+                if isinstance(self.table2, ClusterTable)
                 else self.action2)
 
     @cached_property
@@ -136,23 +140,23 @@ class TwoTableGraph(OneRelGraph, ABC):
     def data1(self):
         """ Data from table 1. """
         return self._fetch_data(self.table1,
-                                order=self.order1,
+                                k=self.k1,
                                 clust=self.clust1)
 
     @cached_property
     def data2(self):
         """ Data from table 2. """
         return self._fetch_data(self.table2,
-                                order=self.order2,
+                                k=self.k2,
                                 clust=self.clust2)
 
     @cached_property
-    def row_index(self):
-        return make_index(self.table2.header, self.order2, self.clust2)
+    def row_tracks(self):
+        return make_tracks(self.table2.header, self.k2, self.clust2)
 
     @cached_property
-    def col_index(self):
-        return make_index(self.table1.header, self.order1, self.clust1)
+    def col_tracks(self):
+        return make_tracks(self.table1.header, self.k1, self.clust1)
 
 
 class TwoTableMergedGraph(TwoTableGraph, ABC):
@@ -204,18 +208,18 @@ class TwoTableWriter(GraphWriter, ABC):
     def get_graph_type(cls, *args, **kwargs) -> type[TwoTableGraph]:
         """ Type of graph. """
 
-    def __init__(self, table1_file: Path, table2_file: Path):
-        super().__init__(table1_file, table2_file)
+    def __init__(self, table1: Table, table2: Table):
+        super().__init__(table1, table2)
 
     @cached_property
     def table1(self):
         """ The first table providing the data for the graph(s). """
-        return load_pos_table(self.table_files[0])
+        return self.tables[0]
 
     @cached_property
     def table2(self):
         """ The second table providing the data for the graph(s). """
-        return load_pos_table(self.table_files[1])
+        return self.tables[1]
 
     def iter_graphs(self,
                     rels: tuple[str, ...],
@@ -227,47 +231,38 @@ class TwoTableWriter(GraphWriter, ABC):
                 graph_type = self.get_graph_type()
                 yield graph_type(rel=rel,
                                  table1=self.table1,
-                                 order1=cparams1["order"],
+                                 k1=cparams1["k"],
                                  clust1=cparams1["clust"],
                                  table2=self.table2,
-                                 order2=cparams2["order"],
+                                 k2=cparams2["k"],
                                  clust2=cparams2["clust"],
                                  **kwargs)
 
 
-def _iter_table_pairs(table_files: Iterable[Path],
-                      table_segs: tuple[path.Segment, ...]):
+def _iter_table_pairs(tables: Iterable[Table]):
     """ Yield every pair of files whose reference and section match. """
-    logger.debug("Seeking all pairs of table files with identical references "
-                 f"and sections matching segments {list(map(str, table_segs))}")
-    # Determine the reference and section of each table.
-    table_fields = defaultdict(set)
-    for file in table_files:
-        fields = path.parse(file, *table_segs)
-        key = fields[path.REF], fields[path.SECT]
-        if file in table_fields[key]:
-            logger.warning(f"Duplicate table file: {file}")
+    tables = list(tables)
+    # Group the tables by reference and section.
+    table_groups = defaultdict(list)
+    for table in tables:
+        key = table.ref, table.sect
+        if table in table_groups[key]:
+            logger.warning(f"Duplicate table: {table}")
         else:
-            table_fields[key].add(file)
-    # Yield every pair of table files.
-    for (ref, sect), tables in table_fields.items():
+            table_groups[key].append(table)
+    # Yield every pair of table files from each group.
+    for (ref, sect), tables in table_groups.items():
         n_files = len(tables)
         n_pairs = n_files * (n_files - 1) // 2
-        logger.debug(f"Found {n_files} table files ({n_pairs} pairs) with "
-                     f"reference {repr(ref)} and section {repr(sect)}")
+        logger.detail(f"Found {n_files} table files ({n_pairs} pairs) "
+                      f"with reference {repr(ref)} and section {repr(sect)}")
         yield from combinations(sorted(tables), 2)
 
 
-def iter_pos_table_pairs(table_files: Iterable[Path]):
+def iter_table_pairs(tables: Iterable[Table]):
     """ Yield every pair of files of positional tables whose reference
     and section match. """
-    yield from _iter_table_pairs(table_files, path.POS_TABLE_SEGS)
-
-
-def iter_read_table_pairs(table_files: Iterable[Path]):
-    """ Yield every pair of files of per-read tables whose reference and
-    section match. """
-    yield from _iter_table_pairs(table_files, path.READ_TABLE_SEGS)
+    yield from _iter_table_pairs(tables)
 
 
 class TwoTableRunner(GraphRunner, ABC):
@@ -279,7 +274,7 @@ class TwoTableRunner(GraphRunner, ABC):
 
     @classmethod
     def var_params(cls):
-        return super().var_params() + [opt_comppair, opt_compself]
+        return super().var_params() + [opt_comppair, opt_compself, opt_out_dir]
 
     @classmethod
     def run(cls,
@@ -287,24 +282,22 @@ class TwoTableRunner(GraphRunner, ABC):
             compself: bool,
             comppair: bool,
             max_procs: int,
-            parallel: bool,
             **kwargs):
         # List all table files.
-        table_files = list(find_pos_tables(input_path))
+        tables = load_pos_tables(input_path)
         # Determine all pairs of tables to compare.
         table_pairs = list()
         if compself:
             # Compare every table with itself.
-            table_pairs.extend((file, file) for file in table_files)
+            table_pairs.extend((file, file) for file in tables)
         if comppair:
             # Compare every pair of two different tables.
-            table_pairs.extend(iter_pos_table_pairs(table_files))
+            table_pairs.extend(iter_table_pairs(tables))
         # Generate a table writer for each pair of tables.
-        writers = [cls.get_writer_type()(table1_file, table2_file)
-                   for table1_file, table2_file in table_pairs]
+        writers = [cls.get_writer_type()(table1, table2)
+                   for table1, table2 in table_pairs]
         return list(chain(*dispatch([writer.write for writer in writers],
                                     max_procs,
-                                    parallel,
                                     pass_n_procs=False,
                                     kwargs=kwargs)))
 

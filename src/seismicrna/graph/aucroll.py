@@ -1,20 +1,17 @@
 import os
 from functools import cached_property
-from logging import getLogger
 
 import pandas as pd
 from click import command
 from plotly import graph_objects as go
 
-from .base import PosGraphWriter, PosGraphRunner
-from .onestruct import StructOneTableGraph, StructOneTableRunner
-from .onetable import OneTableWriter
+from .base import GraphWriter, PosGraphRunner
+from .onestruct import (StructOneTableGraph,
+                        StructOneTableRunner,
+                        StructOneTableWriter)
 from .roc import PROFILE_NAME, rename_columns
-from .roll import RollingGraph
+from .roll import RollingGraph, RollingRunner
 from .trace import iter_rolling_auc_traces
-from ..core.arg import opt_window, opt_winmin
-
-logger = getLogger(__name__)
 
 COMMAND = __name__.split(os.path.extsep)[-1]
 
@@ -42,6 +39,8 @@ class RollingAUCGraph(StructOneTableGraph, RollingGraph):
             if key in data:
                 raise ValueError(f"Duplicate RNA state: {key}")
             data[key] = state.rolling_auc(self._size, self._min_count)
+        if not data:
+            raise ValueError(f"Got no data for {self}")
         # Covert the data into a DataFrame and rename the column levels.
         return rename_columns(pd.DataFrame.from_dict(data))
 
@@ -61,17 +60,13 @@ class RollingAUCGraph(StructOneTableGraph, RollingGraph):
         fig.update_yaxes(gridcolor="#d0d0d0")
 
 
-class RollingAUCWriter(OneTableWriter, PosGraphWriter):
+class RollingAUCWriter(StructOneTableWriter, GraphWriter):
 
     def get_graph(self, rels_group: str, **kwargs):
         return RollingAUCGraph(table=self.table, rel=rels_group, **kwargs)
 
 
-class RollingAUCRunner(StructOneTableRunner, PosGraphRunner):
-
-    @classmethod
-    def var_params(cls):
-        return super().var_params() + [opt_window, opt_winmin]
+class RollingAUCRunner(RollingRunner, StructOneTableRunner, PosGraphRunner):
 
     @classmethod
     def get_writer_type(cls):

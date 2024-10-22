@@ -1,4 +1,3 @@
-from logging import getLogger
 from pathlib import Path
 
 from click import command
@@ -6,40 +5,60 @@ from click import command
 from .write import cluster
 from ..core import path
 from ..core.arg import (CMD_CLUSTER,
-                        docdef,
                         arg_input_path,
+                        opt_tmp_pfx,
+                        opt_keep_tmp,
+                        opt_min_clusters,
                         opt_max_clusters,
                         opt_em_runs,
                         opt_em_thresh,
                         opt_min_em_iter,
                         opt_max_em_iter,
+                        opt_jackpot,
+                        opt_jackpot_conf_level,
+                        opt_max_jackpot_quotient,
+                        opt_max_pearson_run,
+                        opt_min_nrmsd_run,
+                        opt_max_loglike_vs_best,
+                        opt_min_pearson_vs_best,
+                        opt_max_nrmsd_vs_best,
+                        opt_try_all_ks,
+                        opt_write_all_ks,
+                        opt_cluster_pos_table,
+                        opt_cluster_abundance_table,
                         opt_brotli_level,
-                        opt_parallel,
                         opt_max_procs,
                         opt_force)
-from ..core.parallel import as_list_of_tuples, dispatch
+from ..core.run import run_func
+from ..core.task import as_list_of_tuples, dispatch
 from ..mask.data import load_mask_dataset
 
-logger = getLogger(__name__)
 
-DEFAULT_ORDER = 2
-
-
-@docdef.auto()
+@run_func(CMD_CLUSTER, with_tmp=True)
 def run(input_path: tuple[str, ...], *,
+        min_clusters: int,
         max_clusters: int,
         em_runs: int,
         min_em_iter: int,
         max_em_iter: int,
         em_thresh: float,
+        min_nrmsd_run: float,
+        max_pearson_run: float,
+        jackpot: bool,
+        jackpot_conf_level: float,
+        max_jackpot_quotient: float,
+        max_loglike_vs_best: float,
+        min_pearson_vs_best: float,
+        max_nrmsd_vs_best: float,
+        try_all_ks: bool,
+        write_all_ks: bool,
+        cluster_pos_table: bool,
+        cluster_abundance_table: bool,
         brotli_level: int,
         max_procs: int,
-        parallel: bool,
-        force: bool) -> list[Path]:
+        force: bool,
+        tmp_dir: Path) -> list[Path]:
     """ Infer alternative structures by clustering reads' mutations. """
-    if max_clusters == 0:
-        # Exit immediately if the maximum number of clusters is 0.
-        return list()
     # Find the mask report files.
     report_files = path.find_files_chain(
         input_path, load_mask_dataset.report_path_seg_types
@@ -47,49 +66,69 @@ def run(input_path: tuple[str, ...], *,
     # Cluster each mask dataset.
     return dispatch(cluster,
                     max_procs,
-                    parallel,
                     pass_n_procs=True,
                     args=as_list_of_tuples(report_files),
-                    kwargs=dict(max_order=max_clusters,
-                                n_runs=em_runs,
+                    kwargs=dict(min_clusters=min_clusters,
+                                max_clusters=max_clusters,
+                                em_runs=em_runs,
                                 min_iter=min_em_iter,
                                 max_iter=max_em_iter,
-                                conv_thresh=em_thresh,
+                                em_thresh=em_thresh,
+                                min_nrmsd_run=min_nrmsd_run,
+                                max_pearson_run=max_pearson_run,
+                                jackpot=jackpot,
+                                jackpot_conf_level=jackpot_conf_level,
+                                max_jackpot_quotient=max_jackpot_quotient,
+                                max_loglike_vs_best=max_loglike_vs_best,
+                                min_pearson_vs_best=min_pearson_vs_best,
+                                max_nrmsd_vs_best=max_nrmsd_vs_best,
+                                try_all_ks=try_all_ks,
+                                write_all_ks=write_all_ks,
+                                cluster_pos_table=cluster_pos_table,
+                                cluster_abundance_table=cluster_abundance_table,
                                 brotli_level=brotli_level,
-                                force=force))
+                                force=force,
+                                tmp_dir=tmp_dir))
 
 
 params = [
     # Input files
     arg_input_path,
     # Clustering options
+    opt_min_clusters,
     opt_max_clusters,
     opt_em_runs,
     opt_em_thresh,
     opt_min_em_iter,
     opt_max_em_iter,
+    opt_max_pearson_run,
+    opt_min_nrmsd_run,
+    opt_jackpot,
+    opt_jackpot_conf_level,
+    opt_max_jackpot_quotient,
+    opt_max_loglike_vs_best,
+    opt_min_pearson_vs_best,
+    opt_max_nrmsd_vs_best,
+    opt_try_all_ks,
+    opt_write_all_ks,
+    # Table options
+    opt_cluster_pos_table,
+    opt_cluster_abundance_table,
     # Compression
     opt_brotli_level,
     # Parallelization
     opt_max_procs,
-    opt_parallel,
     # Effort
     opt_force,
+    opt_tmp_pfx,
+    opt_keep_tmp,
 ]
 
 
 @command(CMD_CLUSTER, params=params)
-def cli(*args, max_clusters: int, **kwargs):
+def cli(*args, **kwargs):
     """ Infer alternative structures by clustering reads' mutations. """
-    # When cluster is called via the command "cluster" (instead of via
-    # the run() function), assume that clustering is intentional. Thus,
-    # override the default max_clusters == 0 (which disables clustering)
-    # by setting it to 2 (the minimum non-trivial order of clustering).
-    if max_clusters <= 0:
-        logger.warning(f"{repr(CMD_CLUSTER)} expected --max-clusters to be ≥ 1, "
-                       f"but got {max_clusters}; defaulting to {DEFAULT_ORDER}")
-        max_clusters = DEFAULT_ORDER
-    return run(*args, max_clusters=max_clusters, **kwargs)
+    return run(*args, **kwargs)
 
 ########################################################################
 #                                                                      #

@@ -1,4 +1,5 @@
 # Sphinx documentation
+docs/
 _build/
 _autosummary/
 
@@ -15,7 +16,13 @@ __pycache__/
 # PyCharm
 .idea
 
-# Log files
+# Output files
+out/
+tmp*/
+sim/refs
+sim/params
+sim/samples
+log/
 *.log
 
 # macOS

@@ -1,6 +1,5 @@
 from functools import cached_property
 from itertools import chain
-from logging import getLogger
 from pathlib import Path
 from subprocess import CompletedProcess
 
@@ -10,10 +9,10 @@ from ..core.extern import (GUNZIP_CMD,
                            ShellCommand,
                            args_to_cmd,
                            cmds_to_pipe)
-
-logger = getLogger(__name__)
+from ..core.logs import logger
 
 FQ_LINES_PER_READ = 4
+PHRED_ENCS = {33, 64}
 
 
 def fastq_gz(fastq_file: Path):
@@ -51,6 +50,14 @@ def count_fastq_reads(fastq_file: Path):
                         parse_stdout_count_fastq_reads,
                         opath=False)
     return step(fastq_file)
+
+
+def format_phred_arg(phred_enc: int):
+    """ Format a Phred score argument for Bowtie2. """
+    if phred_enc not in PHRED_ENCS:
+        logger.warning(f"Expected phred_enc to be one of {PHRED_ENCS}, "
+                       f"but got {phred_enc}, which may cause problems")
+    return f"--phred{phred_enc}"
 
 
 class FastqUnit(object):
@@ -117,16 +124,16 @@ class FastqUnit(object):
         self.phred_enc = phred_enc
         self.one_ref = one_ref
         self.sample, self.ref, self.exts = self.get_sample_ref_exts()
-        logger.debug(f"Instantiated a {type(self).__name__} with "
-                     + ", ".join(f"{k} = {v} (type '{type(v).__name__}')"
-                                 for k, v in self.paths.items())
-                     + f", phred_enc = {phred_enc}, one_ref = {one_ref}")
+        logger.detail(
+            f"Instantiated a {type(self).__name__} with paths={self.paths}, "
+            f"phred_enc={phred_enc}, one_ref={one_ref}"
+        )
 
-    @property
+    @cached_property
     def phred_arg(self):
-        return f"--phred{self.phred_enc}"
+        return format_phred_arg(self.phred_enc)
 
-    @property
+    @cached_property
     def kind(self):
         cls = type(self).__name__
         if self.paired:
@@ -194,11 +201,6 @@ class FastqUnit(object):
         return fields
 
     @property
-    def cutadapt_input_args(self):
-        """ Return input file arguments for Cutadapt. """
-        return tuple(self.paths.values())
-
-    @property
     def bowtie2_inputs(self):
         """ Return input file arguments for Bowtie2. """
         return tuple(chain(*[(self.BOWTIE2_FLAGS[key], fq)
@@ -216,8 +218,11 @@ class FastqUnit(object):
                               one_ref=self.one_ref)
 
     @classmethod
-    def _from_files(cls, /, *, phred_enc: int, one_ref: bool,
-                    fqs: list[Path], key: str):
+    def _from_files(cls, /, *,
+                    phred_enc: int,
+                    one_ref: bool,
+                    fqs: list[Path],
+                    key: str):
         if key not in (cls.KEY_SINGLE, cls.KEY_INTER):
             raise ValueError(f"Invalid key: '{key}'")
         segs = path.DMFASTQ_SEGS if one_ref else path.FASTQ_SEGS
@@ -225,10 +230,12 @@ class FastqUnit(object):
             try:
                 yield cls(phred_enc=phred_enc, one_ref=one_ref, **{key: fq})
             except Exception as error:
-                logger.error(f"Failed to load FASTQ file {fq}: {error}")
+                logger.error(error)
 
     @classmethod
-    def _from_mates(cls, /, *, phred_enc: int, one_ref: bool,
+    def _from_mates(cls, /, *,
+                    phred_enc: int,
+                    one_ref: bool,
                     fqs: list[Path]):
         # Determine the key and segments based on whether the FASTQs are
         # demultiplexed
@@ -268,7 +275,7 @@ class FastqUnit(object):
             try:
                 yield cls(phred_enc=phred_enc, one_ref=one_ref, **fq_args)
             except Exception as error:
-                logger.error(f"Failed to load FASTQ pair {fq_args}: {error}")
+                logger.error(error)
 
     @classmethod
     def from_paths(cls, /, *, phred_enc: int, **fastq_args: list[Path]):
@@ -300,26 +307,32 @@ class FastqUnit(object):
         """
         # List all FASTQ files.
         # single-end
-        yield from cls._from_files(phred_enc=phred_enc, one_ref=False,
+        yield from cls._from_files(phred_enc=phred_enc,
+                                   one_ref=False,
                                    fqs=fastq_args.get(cls.KEY_SINGLE, ()),
                                    key=cls.KEY_SINGLE)
         # interleaved paired-end
-        yield from cls._from_files(phred_enc=phred_enc, one_ref=False,
+        yield from cls._from_files(phred_enc=phred_enc,
+                                   one_ref=False,
                                    fqs=fastq_args.get(cls.KEY_INTER, ()),
                                    key=cls.KEY_INTER)
         # mated paired-end
-        yield from cls._from_mates(phred_enc=phred_enc, one_ref=False,
+        yield from cls._from_mates(phred_enc=phred_enc,
+                                   one_ref=False,
                                    fqs=fastq_args.get(cls.KEY_MATED, ()))
         # demultiplexed single-end
-        yield from cls._from_files(phred_enc=phred_enc, one_ref=True,
+        yield from cls._from_files(phred_enc=phred_enc,
+                                   one_ref=True,
                                    fqs=fastq_args.get(cls.KEY_DSINGLE, ()),
                                    key=cls.KEY_SINGLE)
         # demultiplexed interleaved paired-end
-        yield from cls._from_files(phred_enc=phred_enc, one_ref=True,
+        yield from cls._from_files(phred_enc=phred_enc,
+                                   one_ref=True,
                                    fqs=fastq_args.get(cls.KEY_DINTER, ()),
                                    key=cls.KEY_INTER)
         # demultiplexed mated paired-end
-        yield from cls._from_mates(phred_enc=phred_enc, one_ref=True,
+        yield from cls._from_mates(phred_enc=phred_enc,
+                                   one_ref=True,
                                    fqs=fastq_args.get(cls.KEY_DMATED, ()))
 
     def __str__(self):

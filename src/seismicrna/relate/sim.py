@@ -1,320 +1,121 @@
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 import pandas as pd
 
+from .batch import format_read_name
 from .io import QnamesBatchIO, RelateBatchIO
 from .report import RelateReport
-from .write import get_reads_per_batch, mib_to_bytes
-from ..core.batch import (END_COORDS,
-                          END5_COORD,
-                          END3_COORD,
-                          get_length,
-                          list_naturals,
-                          check_naturals)
-from ..core.dims import triangular
 from ..core.io import RefseqIO
-from ..core.rel import SUB_A, SUB_C, SUB_G, SUB_T
-from ..core.seq import (BASEA,
-                        BASEC,
-                        BASEG,
-                        BASET,
-                        DNA,
-                        index_to_pos,
-                        index_to_seq,
-                        seq_pos_to_index)
+from ..core.seq import DNA
+from ..core.tmp import release_to_out
 from ..core.write import need_write
 
 rng = np.random.default_rng()
 
 
-def sub_options(base: str):
-    """ Valid substitutions for a given reference base. """
-    if base == BASEA:
-        return [SUB_C, SUB_G, SUB_T]
-    if base == BASEC:
-        return [SUB_A, SUB_G, SUB_T]
-    if base == BASEG:
-        return [SUB_A, SUB_C, SUB_T]
-    if base == BASET:
-        return [SUB_A, SUB_C, SUB_G]
-    raise ValueError(f"Invalid base: {repr(base)}")
-
-
-def index_to_refseq_pos(index: pd.MultiIndex):
-    # Determine the reference sequence.
-    refseq = index_to_seq(index)
-    # Validate the sequence positions.
-    pos = check_naturals(index_to_pos(index), "positions")
-    return refseq, pos
-
-
-def choose_clusters(p_clust: pd.Series, n_reads: int):
-    """ Choose a cluster for each read. """
-    # Validate the cluster proportions.
-    if not isinstance(p_clust, pd.Series):
-        raise TypeError("p_clust must be Series, "
-                        f"but got {type(p_clust).__name__}")
-    clusters = check_naturals(p_clust.index, "clusters")
-    # Choose a cluster for each read.
-    return rng.choice(clusters, n_reads, p=p_clust.values)
-
-
-def simulate_p_mut(refseq: DNA, ncls: int):
-    """ Simulate mutation rates. """
-    all_muts = pd.DataFrame(
-        rng.beta(1.5,8.5,(len(refseq), ncls)),
-        seq_pos_to_index(refseq, list_naturals(len(refseq)), 1),
-        list_naturals(ncls)
-    )
-    similar = np.random.choice(all_muts.index, round(len(all_muts.index)*0.9), replace=False)
-    offsets = rng.random(len(similar))*0.1*np.random.choice([-1,1], len(similar))
-    all_muts.loc[similar, all_muts.columns[1]] = all_muts.loc[similar, all_muts.columns[0]] + offsets
-    all_muts[all_muts < 0] = 0.01
-    return all_muts
-
-def simulate_p_edit(refseq: DNA, ncls: int):
-    """ Simulate edit rates. """
-    all_muts = pd.DataFrame(
-        rng.beta(0.5, 0.5,(len(refseq), ncls)),
-        seq_pos_to_index(refseq, list_naturals(len(refseq)), 1),
-        list_naturals(ncls)
-    )
-    all_a_1 = all_muts.index.get_level_values("Base") == "A"
-    all_a_2 = all_muts.index.get_level_values("Base") == "A"
-    a_indices, = np.where(all_a_1)
-    ed = np.random.choice(a_indices, round(len(a_indices)*0.05), replace=False)
-    ed_1 = np.random.choice(a_indices, round(len(a_indices)*0.025), replace=False)
-    ed_2 = np.random.choice(a_indices, round(len(a_indices)*0.025), replace=False)
-    ed_1 = np.union1d(ed, ed_1)
-    ed_2 = np.union1d(ed, ed_2)
-    ed_1_bool = np.ones_like(all_muts.index, dtype=bool)
-    ed_2_bool = np.ones_like(all_muts.index, dtype=bool)
-    ed_1_bool[ed_1] = 0
-    ed_2_bool[ed_2] = 0
-    all_a_1[~ed_1_bool] = 0
-    all_a_2[~ed_2_bool] = 0
-    non_a = all_muts.index.get_level_values("Base") != "A"
-    uned_1 = non_a | all_a_1
-    uned_2 = non_a | all_a_2
-    all_muts.loc[uned_1, all_muts.columns[0]] = 0
-    all_muts.loc[uned_2, all_muts.columns[1]] = 0
-    return all_muts
-
-
-def simulate_p_ends(npos: int, min_size: int = 1, max_size: int | None = None):
-    """ Simulate proportions of end coordinates. """
-    p_ends = pd.Series(
-        1. - rng.random(triangular(npos)),
-        pd.MultiIndex.from_arrays(
-            [a + 1 for a in np.triu_indices(npos)],
-            names=END_COORDS
-        )
-    )
-    # Validate the read size limits.
-    if not 1 <= min_size <= npos:
-        raise ValueError(f"min_size must be ≥ 1 and ≤ {npos}, "
-                         f"but got {min_size}")
-    if max_size is None:
-        max_size = npos
-    elif not min_size <= max_size <= npos:
-        raise ValueError(f"max_size must be ≥ {min_size} and ≤ {npos}, "
-                         f"but got {min_size}")
-    # Remove coordinates with improper sizes.
-    if min_size > 1 or max_size < npos:
-        end5s = p_ends.index.get_level_values(END5_COORD).values
-        end3s = p_ends.index.get_level_values(END3_COORD).values
-        sizes = end3s - end5s + 1
-        p_ends = p_ends.loc[np.logical_and(min_size <= sizes,
-                                           sizes <= max_size)]
-    return p_ends / p_ends.sum()
-
-
-def simulate_p_clust(ncls: int):
-    p_clust = pd.Series(1. - rng.random(ncls), list_naturals(ncls))
-    return p_clust / p_clust.sum()
-
-
-def simulate_read_name(batch_num: int, read_num: int):
-    return f"Batch:{batch_num};Read:{read_num}"
-
-
-def simulate_qnames_batch(sample: str,
-                          ref: str,
-                          batch: int,
-                          n_reads: int):
-    return QnamesBatchIO(sample=sample,
-                         ref=ref,
-                         batch=batch,
-                         names=[simulate_read_name(batch, read)
-                                for read in range(n_reads)])
-
-
-def simulate_relate_batch(sample: str,
-                          ref: str,
-                          batch: int,
-                          p_mut: pd.DataFrame,
-                          p_ends: pd.Series,
-                          p_edit: pd.DataFrame,
-                          cluster_choices: np.ndarray):
-    """ Simulate a relate batch. """
-    # Validate the mutation rates.
-    if not isinstance(p_mut, pd.DataFrame):
-        raise TypeError("p_mut must be DataFrame, "
-                        f"but got {type(p_mut).__name__}")
-    refseq, positions = index_to_refseq_pos(p_mut.index)
-    clusters = check_naturals(p_mut.columns, "clusters")
-    # Validate the end coordinates.
-    if not isinstance(p_ends, pd.Series):
-        raise TypeError("p_ends must be Series, "
-                        f"but got {type(p_ends).__name__}")
-    if tuple(p_ends.index.names) != END_COORDS:
-        raise ValueError(f"p_ends index must have names {END_COORDS}, "
-                         f"but got {p_ends.index.names}")
-    n_reads = get_length(cluster_choices)
-    reads = np.arange(n_reads)
-    # Choose 5' and 3' end coordinates for each read.
-    coords = rng.choice(p_ends.size, n_reads, p=p_ends.values)
-    end5_choices = p_ends.index.get_level_values(END5_COORD).values[coords]
-    end3_choices = p_ends.index.get_level_values(END3_COORD).values[coords]
-    # Validate the cluster choices.
-    if not isinstance(cluster_choices, np.ndarray):
-        raise TypeError("cluster_choices must be ndarray, "
-                        f"but got {type(cluster_choices).__name__}")
-    # Determine which reads come from each cluster.
-    in_cluster = {cluster: reads[cluster_choices == cluster]
-                  for cluster in clusters}
-    # Simulate mutations for each position.
-    muts = dict()
-    for pos, base in zip(positions, refseq, strict=True):
-        pos_sub_options = sub_options(base)
-        muts[pos] = {sub: np.array([], dtype=int) for sub in pos_sub_options}
-        # Determine for which reads the position is within the ends.
-        in_ends = reads[np.logical_and(end5_choices <= pos,
-                                       pos <= end3_choices)]
-        # Simulate mutations for each cluster.
-        for cluster in clusters:
-            if p_edit.at[(pos, base), cluster] > 0:
-                # Determine which reads can be mutated.
-                read_options = np.intersect1d(in_ends,
-                                              in_cluster[cluster],
-                                              assume_unique=True)
-                # Simulate the number of reads with edits.
-                n_muts = rng.binomial(get_length(read_options),
-                                      p_edit.at[(pos, base), cluster])
-                # Choose reads with edits at the position.
-                edit_read_choices = rng.choice(read_options, n_muts, replace=False)
-                # Record the reads with each type of substitution.
-                muts[pos][SUB_G] = np.hstack([muts[pos][SUB_G],
-                                              edit_read_choices])
-                read_options = np.setdiff1d(read_options,
-                                            edit_read_choices,
-                                            assume_unique=True)
-            else:
-                read_options = np.intersect1d(in_ends,
-                                              in_cluster[cluster],
-                                              assume_unique=True)
-
-            # Simulate the number of reads with mutations.
-            n_muts = rng.binomial(get_length(read_options),
-                                  p_mut.at[(pos, base), cluster])
-            # Choose reads with mutations at the position.
-            read_choices = rng.choice(read_options, n_muts, replace=False)
-            # Choose a type of subsitution for each mutated read.
-            sub_choices = rng.choice(pos_sub_options, read_choices.size, p=np.array([2/7,1/7,4/7]))
-            # Record the reads with each type of substitution.
-            for sub in pos_sub_options:
-                muts[pos][sub] = np.hstack([muts[pos][sub],
-                                            read_choices[sub_choices == sub]])
-    # Assemble a simulated RelateBatchIO.
-    return RelateBatchIO(sample=sample,
-                         ref=ref,
-                         reflen=len(refseq),
-                         batch=batch,
-                         end5s=end5_choices,
-                         mid5s=end5_choices,
-                         mid3s=end3_choices,
-                         end3s=end3_choices,
-                         muts=muts)
+def _update_checksums(current_checksums: dict[str, list[str]],
+                      new_checksums: dict[str, list[str]]):
+    for key, values in new_checksums.items():
+        try:
+            current_checksums[key].extend(values)
+        except KeyError:
+            current_checksums[key] = values
 
 
 def simulate_batch(sample: str,
                    ref: str,
                    batch: int,
-                   n_reads: int,
-                   p_mut: pd.DataFrame,
-                   p_ends: pd.Series,
-                   p_edit: pd.DataFrame,
-                   cluster_choices: np.ndarray):
-    qnames_batch = simulate_qnames_batch(
-        sample, ref, batch, n_reads
-    )
-    relate_batch = simulate_relate_batch(
-        sample, ref, batch, p_mut, p_ends, p_edit, cluster_choices
-    )
-    return qnames_batch, relate_batch
+                   pmut: pd.DataFrame,
+                   uniq_end5s: np.ndarray,
+                   uniq_end3s: np.ndarray,
+                   pends: np.ndarray,
+                   paired: bool,
+                   read_length: int,
+                   p_rev: float,
+                   min_mut_gap: int,
+                   num_reads: int,
+                   formatter: Callable[[int, int], str] = format_read_name):
+    """ Simulate a pair of RelateBatchIO and QnamesBatchIO. """
+    relate_batch = RelateBatchIO.simulate(sample=sample,
+                                          ref=ref,
+                                          batch=batch,
+                                          pmut=pmut,
+                                          uniq_end5s=uniq_end5s,
+                                          uniq_end3s=uniq_end3s,
+                                          pends=pends,
+                                          paired=paired,
+                                          read_length=read_length,
+                                          p_rev=p_rev,
+                                          min_mut_gap=min_mut_gap,
+                                          num_reads=num_reads)
+    qnames_batch = QnamesBatchIO.simulate(sample=sample,
+                                          ref=ref,
+                                          batch=batch,
+                                          num_reads=relate_batch.num_reads,
+                                          formatter=formatter)
+    return relate_batch, qnames_batch
 
 
-def generate_batch(out_dir: Path, brotli_level: int, *args, **kwargs):
-    qnames_batch, relate_batch = simulate_batch(*args, **kwargs)
-    _, relate_check = relate_batch.save(out_dir, brotli_level, force=True)
-    _, qnames_check = qnames_batch.save(out_dir, brotli_level, force=True)
-    return qnames_check, relate_check
-
-
-def generate_batches(refseq: DNA,
-                     n_reads: int,
-                     batch_size: float,
-                     cluster_choices: np.ndarray,
-                     *args,
+def simulate_cluster(first_batch: int,
+                     batch_size: int,
+                     num_reads: int,
                      **kwargs):
-    qnames_checks = list()
-    relate_checks = list()
+    """ Simulate all batches for one cluster. """
     # Determine the numbers of batches and reads per batch.
-    n_reads_per_batch = get_reads_per_batch(mib_to_bytes(batch_size),
-                                            len(refseq))
-    n_batches_full, n_reads_extra = divmod(n_reads, n_reads_per_batch)
-    # Generate every full-size batch.
-    for batch in range(n_batches_full):
-        first = n_reads_per_batch * batch
-        last = n_reads_per_batch + first
-        qnames_check, relate_check = generate_batch(
-            *args,
-            batch=batch,
-            n_reads=n_reads_per_batch,
-            cluster_choices=cluster_choices[first: last],
-            **kwargs
-        )
-        qnames_checks.append(qnames_check)
-        relate_checks.append(relate_check)
-    # Generate the last batch, which may have fewer reads.
-    if n_reads_extra:
-        first = n_reads_per_batch * n_batches_full
-        last = n_reads
-        qnames_check, relate_check = generate_batch(
-            *args,
-            batch=n_batches_full,
-            n_reads=n_reads_extra,
-            cluster_choices=cluster_choices[first: last],
-            **kwargs
-        )
-        qnames_checks.append(qnames_check)
-        relate_checks.append(relate_check)
-    # Collect the checksums into one dictionary.
-    checksums = {RelateBatchIO.btype(): relate_checks,
-                 QnamesBatchIO.btype(): qnames_checks}
-    return checksums
+    num_full_batches, last_batch_size = divmod(int(num_reads), int(batch_size))
+    last_batch = first_batch + num_full_batches
+    # Simulate every full-size batch.
+    for batch in range(first_batch, last_batch):
+        yield simulate_batch(batch=batch,
+                             num_reads=batch_size,
+                             **kwargs)
+    # Simulate the last batch, which may have fewer reads.
+    if last_batch_size > 0:
+        yield simulate_batch(batch=last_batch,
+                             num_reads=last_batch_size,
+                             **kwargs)
 
 
-def simulate_relate(out_dir: Path,
+def simulate_batches(batch_size: int,
+                     pmut: pd.DataFrame,
+                     pclust: pd.Series,
+                     num_reads: int,
+                     **kwargs):
+    # Simulate the number of reads per cluster.
+    num_reads_clusters = pd.Series(rng.multinomial(num_reads, pclust),
+                                   pclust.index)
+    # Simulate batches for each cluster.
+    first_batch = 0
+    for k, clust in pclust.index:
+        num_reads_cluster = num_reads_clusters.loc[(k, clust)]
+        pmut_cluster = pmut.loc[:, (slice(None), k, clust)]
+        for batch in simulate_cluster(first_batch,
+                                      batch_size,
+                                      num_reads_cluster,
+                                      pmut=pmut_cluster,
+                                      **kwargs):
+            yield batch
+            first_batch += 1
+
+
+def simulate_relate(*,
+                    out_dir: Path,
+                    tmp_dir: Path,
                     sample: str,
                     ref: str,
                     refseq: DNA,
-                    n_reads: int,
+                    batch_size: int,
+                    num_reads: int,
+                    pmut: pd.DataFrame,
+                    uniq_end5s: np.ndarray,
+                    uniq_end3s: np.ndarray,
+                    pends: np.ndarray,
+                    pclust: pd.Series,
                     brotli_level: int,
                     force: bool,
-                    *args,
                     **kwargs):
     """ Simulate an entire relate step. """
     report_file = RelateReport.build_path(top=out_dir,
@@ -324,33 +125,53 @@ def simulate_relate(out_dir: Path,
         began = datetime.now()
         # Write the reference sequence to a file.
         refseq_file = RefseqIO(sample=sample, ref=ref, refseq=refseq)
-        _, refseq_checksum = refseq_file.save(out_dir, brotli_level, force=True)
+        _, refseq_checksum = refseq_file.save(tmp_dir,
+                                              brotli_level=brotli_level,
+                                              force=True)
         # Simulate and write the batches.
-        checksums = generate_batches(out_dir=out_dir,
-                                     sample=sample,
-                                     ref=ref,
-                                     refseq=refseq,
-                                     n_reads=n_reads,
-                                     brotli_level=brotli_level,
-                                     *args,
-                                     **kwargs)
-        ns_batches = sorted(set(map(len, checksums.values())))
-        if len(ns_batches) != 1:
-            raise ValueError("Expected exactly 1 number of batches, "
-                             f"but got {ns_batches}")
-        n_batches = ns_batches[0]
+        checksums = {RelateBatchIO.btype(): list(),
+                     QnamesBatchIO.btype(): list()}
+        n_batches = 0
+        read_count = 0
+        for rbatch, nbatch in simulate_batches(sample=sample,
+                                               ref=ref,
+                                               batch_size=batch_size,
+                                               num_reads=num_reads,
+                                               pmut=pmut,
+                                               uniq_end5s=uniq_end5s,
+                                               uniq_end3s=uniq_end3s,
+                                               pends=pends,
+                                               pclust=pclust,
+                                               **kwargs):
+            _, rcheck = rbatch.save(tmp_dir,
+                                    brotli_level=brotli_level,
+                                    force=True)
+            _, ncheck = nbatch.save(tmp_dir,
+                                    brotli_level=brotli_level,
+                                    force=True)
+            checksums[RelateBatchIO.btype()].append(rcheck)
+            checksums[QnamesBatchIO.btype()].append(ncheck)
+            n_batches += 1
+            read_count += rbatch.num_reads
         ended = datetime.now()
         # Write the report.
         report = RelateReport(sample=sample,
                               ref=ref,
-                              min_mapq=-1,
-                              min_reads=n_reads,
-                              n_reads_rel=n_reads,
+                              min_mapq=0,
+                              phred_enc=0,
+                              min_phred=0,
+                              ambindel=False,
+                              clip_end5=0,
+                              clip_end3=0,
+                              min_reads=0,
+                              n_reads_xam=0,
+                              n_reads_rel=read_count,
                               n_batches=n_batches,
                               checksums=checksums,
                               refseq_checksum=refseq_checksum,
                               began=began,
                               ended=ended,
                               overhangs=True)
-        report.save(out_dir, force=True)
+        report_saved = report.save(tmp_dir, force=True)
+        release_to_out(out_dir, tmp_dir, report_saved.parent)
     return report_file

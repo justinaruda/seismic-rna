@@ -1,34 +1,37 @@
 from abc import ABC, abstractmethod
 from functools import cached_property
 from itertools import chain
-from pathlib import Path
 
 from .base import (GraphBase,
                    GraphRunner,
                    GraphWriter,
                    cgroup_table,
                    get_action_name,
-                   make_index,
+                   make_tracks,
                    make_path_subject,
                    make_title_action_sample)
-from ..core.parallel import dispatch
-from ..table.base import Table, PosTable
+from ..core.table import Table, PositionTable
+from ..core.task import dispatch
 
 
 class OneTableGraph(GraphBase, ABC):
     """ Graph of data from one Table. """
 
     def __init__(self, *,
-                 table: Table | PosTable,
-                 order: int | None,
+                 table: Table | PositionTable,
+                 k: int | None,
                  clust: int | None,
-                 order_clust_list: list[tuple[int, int]] | None,
+                 k_clust_list: list[tuple[int, int]] | None,
                  **kwargs):
         super().__init__(**kwargs)
         self.table = table
-        self.order = order
+        self.k = k
         self.clust = clust
-        self.order_clust_list = order_clust_list
+        self.k_clust_list = k_clust_list
+
+    @property
+    def top(self):
+        return self.table.top
 
     @property
     def sample(self):
@@ -52,19 +55,19 @@ class OneTableGraph(GraphBase, ABC):
         return get_action_name(self.table)
 
     @cached_property
-    def row_index(self):
-        return make_index(self.table.header,
-                          self.order,
-                          self.clust,
-                          self.order_clust_list)
+    def row_tracks(self):
+        return make_tracks(self.table.header,
+                           self.k,
+                           self.clust,
+                           self.k_clust_list)
 
     @property
-    def col_index(self):
+    def col_tracks(self):
         return None
 
     @cached_property
     def path_subject(self):
-        return make_path_subject(self.action, self.order, self.clust)
+        return make_path_subject(self.action, self.k, self.clust)
 
     @cached_property
     def title_action_sample(self):
@@ -73,13 +76,13 @@ class OneTableGraph(GraphBase, ABC):
 
 class OneTableWriter(GraphWriter, ABC):
 
-    def __init__(self, table_file: Path):
-        super().__init__(table_file)
+    def __init__(self, table: Table):
+        super().__init__(table)
 
     @cached_property
     def table(self):
         """ The table providing the data for the graph(s). """
-        return self.load_table_file(self.table_files[0])
+        return self.tables[0]
 
     @abstractmethod
     def get_graph(self, *args, **kwargs) -> OneTableGraph:
@@ -100,7 +103,6 @@ class OneTableRunner(GraphRunner, ABC):
     def run(cls,
             input_path: tuple[str, ...], *,
             max_procs: int,
-            parallel: bool,
             **kwargs):
         # Generate a table writer for each table.
         writer_type = cls.get_writer_type()
@@ -108,7 +110,6 @@ class OneTableRunner(GraphRunner, ABC):
                    for table_file in cls.list_table_files(input_path)]
         return list(chain(*dispatch([writer.write for writer in writers],
                                     max_procs,
-                                    parallel,
                                     pass_n_procs=False,
                                     kwargs=kwargs)))
 

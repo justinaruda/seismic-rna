@@ -1,26 +1,22 @@
 from collections import Counter, defaultdict
 from datetime import datetime
-from logging import getLogger
 from pathlib import Path
 from typing import Iterable
 
 from click import command
 
-from .data import PoolDataset, load_relate_pool_dataset
-from .report import PoolReport
 from ..core.arg import (CMD_POOL,
-                        docdef,
                         arg_input_path,
                         opt_pool,
                         opt_max_procs,
-                        opt_parallel,
                         opt_force)
 from ..core.data import load_datasets
-from ..core.parallel import dispatch
+from ..core.logs import logger
+from ..core.run import run_func
+from ..core.task import dispatch
 from ..core.write import need_write
-from ..relate.report import RelateReport
-
-logger = getLogger(__name__)
+from ..relate.data import PoolDataset, load_relate_dataset
+from ..relate.report import RelateReport, PoolReport
 
 DEFAULT_POOL = "pooled"
 
@@ -54,8 +50,8 @@ def pool_samples(out_dir: Path,
     # Deduplicate and sort the samples.
     sample_counts = Counter(samples)
     if max(sample_counts.values()) > 1:
-        logger.warning(f"Pool {repr(name)} with reference {repr(ref)} in "
-                       f"{out_dir} got duplicate samples: {sample_counts}")
+        logger.warning(f"Pool {repr(name)} with reference {repr(ref)} "
+                       f"in {out_dir} got duplicate samples: {sample_counts}")
     samples = sorted(sample_counts)
     # Determine the output report file.
     report_file = PoolReport.build_path(top=out_dir, sample=name, ref=ref)
@@ -82,26 +78,21 @@ def pool_samples(out_dir: Path,
                 # The report file does not contain a Pool report.
                 raise TypeError(f"Cannot overwrite {report_file} with "
                                 f"{PoolReport.__name__}: would cause data loss")
-        logger.info(f"Began pooling samples {samples} into {repr(name)} with "
-                    f"reference {repr(ref)} in output directory {out_dir}")
         ended = datetime.now()
         report = PoolReport(sample=name,
                             ref=ref,
                             pooled_samples=samples,
                             began=began,
                             ended=ended)
-        report.save(out_dir, force=force)
-        logger.info(f"Ended pooling samples {samples} into {repr(name)} with "
-                    f"reference {repr(ref)} in output directory {out_dir}")
+        report.save(out_dir, force=True)
     return report_file
 
 
-@docdef.auto()
+@run_func(CMD_POOL)
 def run(input_path: tuple[str, ...], *,
         pool: str,
         # Parallelization
         max_procs: int,
-        parallel: bool,
         # Effort
         force: bool) -> list[Path]:
     """ Merge samples (vertically) from the Relate step. """
@@ -110,7 +101,7 @@ def run(input_path: tuple[str, ...], *,
         return list()
     # Group the datasets by output directory and reference name.
     pools = defaultdict(list)
-    for dataset in load_datasets(input_path, load_relate_pool_dataset):
+    for dataset in load_datasets(input_path, load_relate_dataset):
         # Check whether the dataset was pooled.
         if isinstance(dataset, PoolDataset):
             # If so, then use all samples in the pool.
@@ -122,7 +113,6 @@ def run(input_path: tuple[str, ...], *,
     # Make each pool of samples.
     return dispatch(pool_samples,
                     max_procs=max_procs,
-                    parallel=parallel,
                     pass_n_procs=False,
                     args=[(out_dir, pool, ref, samples)
                           for (out_dir, ref), samples in pools.items()],
@@ -135,7 +125,6 @@ params = [
     opt_pool,
     # Parallelization
     opt_max_procs,
-    opt_parallel,
     # Effort
     opt_force,
 ]

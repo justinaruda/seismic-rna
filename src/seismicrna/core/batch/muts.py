@@ -1,243 +1,331 @@
 from abc import ABC, abstractmethod
 from collections import Counter
 from functools import cached_property
-from logging import getLogger
+from typing import Iterable
 
 import numpy as np
 import pandas as pd
+from numba import jit
 
-from .count import (count_end_coords,
-                    get_count_per_pos,
-                    get_count_per_read,
-                    get_coverage_matrix,
-                    get_cover_per_pos,
-                    get_cover_per_read,
-                    get_reads_per_pos,
-                    get_rels_per_pos,
-                    get_rels_per_read)
-from .index import (contiguous_mates,
-                    ensure_same_length,
-                    has_mids,
-                    iter_windows,
-                    sanitize_ends,
-                    sanitize_pos)
-from .read import ReadBatch, PartialReadBatch
-from ..rel import REL_TYPE, RelPattern
-from ..seq import BASE_NAME, DNA, seq_pos_to_index
+from .count import (calc_count_per_pos,
+                    calc_count_per_read,
+                    calc_coverage,
+                    calc_reads_per_pos,
+                    calc_rels_per_pos,
+                    calc_rels_per_read,
+                    count_end_coords)
+from .ends import EndCoords, match_reads_segments
+from .index import iter_windows
+from .read import ReadBatch
+from ..array import calc_inverse, find_dims
+from ..header import REL_NAME, make_header
+from ..rel import MATCH, NOCOV, REL_TYPE, RelPattern
+from ..seq import Section, index_to_pos
 from ..types import fit_uint_type
 
-logger = getLogger(__name__)
+rng = np.random.default_rng()
+
+NUM_READS = "reads"
+NUM_SEGMENTS = "segments"
 
 
-class MutsBatch(ReadBatch, ABC):
+def sanitize_muts(muts: dict[int, dict[int, list[int] | np.ndarray]],
+                  section: Section,
+                  data_type: type,
+                  sanitize: bool = True):
+    return {pos: ({REL_TYPE(rel): np.asarray(reads, data_type)
+                   for rel, reads in muts[pos].items()}
+                  if sanitize
+                  else muts[pos])
+            for pos in section.unmasked_int}
+
+
+def simulate_muts(pmut: pd.DataFrame,
+                  seg_end5s: np.ndarray,
+                  seg_end3s: np.ndarray):
+    """ Simulate mutation data.
+
+    Parameters
+    ----------
+    pmut: pd.DataFrame
+        Rate of each type of mutation at each position.
+    seg_end5s:
+        5' end coordinate of each segment.
+    seg_end3s:
+        3' end coordinate of each segment.
+    """
+    num_reads, _ = match_reads_segments(seg_end5s, seg_end3s)
+    read_nums = np.arange(num_reads, dtype=fit_uint_type(num_reads))
+    rels = np.asarray(pmut.columns.get_level_values(REL_NAME), dtype=REL_TYPE)
+    if MATCH not in rels:
+        raise ValueError(f"Relationships omit matches ({MATCH}): {rels}")
+    if NOCOV in rels:
+        raise ValueError(f"Relationships include no coverage ({NOCOV}): {rels}")
+    muts = dict()
+    for pos in index_to_pos(pmut.index):
+        muts[pos] = dict()
+        # Find the reads that cover this position.
+        usable_reads = read_nums[np.any(np.logical_and(seg_end5s <= pos,
+                                                       pos <= seg_end3s),
+                                        axis=1)]
+        if usable_reads.size > 0:
+            # Choose a number of reads for each type of relationship.
+            num_reads_pos_rels = pd.Series(rng.multinomial(usable_reads.size,
+                                                           pmut.loc[pos])[0],
+                                           index=rels).drop(MATCH)
+            for rel, num_reads_pos_rel in num_reads_pos_rels.items():
+                if num_reads_pos_rel > 0:
+                    # Randomly select reads with this relationship.
+                    reads_pos_rel = rng.choice(usable_reads,
+                                               num_reads_pos_rel,
+                                               replace=False,
+                                               shuffle=False)
+                    muts[pos][rel] = reads_pos_rel
+                    # Prevent those reads from being chosen for another
+                    # relationship.
+                    usable_reads = np.setdiff1d(usable_reads,
+                                                reads_pos_rel,
+                                                assume_unique=True)
+    return muts
+
+
+@jit()
+def _fill_matches(matrix: np.ndarray,
+                  index5s: np.ndarray,
+                  index3s: np.ndarray,
+                  unmasked_read_indexes: np.ndarray):
+    """ Fill all covered positions with matches. """
+    for i, read_index in enumerate(unmasked_read_indexes):
+        matrix[read_index, index5s[i]: index3s[i]] = MATCH
+
+
+def calc_muts_matrix(section: Section,
+                     read_nums: np.ndarray,
+                     seg_end5s: np.ndarray,
+                     seg_end3s: np.ndarray,
+                     muts: dict[int, dict[int, np.ndarray]]):
+    """ Matrix of relationships at each position in each read. """
+    dims = find_dims([(NUM_READS,),
+                      (NUM_READS, NUM_SEGMENTS),
+                      (NUM_READS, NUM_SEGMENTS)],
+                     [read_nums, seg_end5s, seg_end3s],
+                     ["read_nums", "seg_end5s", "seg_end3s"])
+    num_reads = dims[NUM_READS]
+    num_segments = dims[NUM_SEGMENTS]
+    section_unmasked = section.unmasked_int
+    matrix = np.full((num_reads, section_unmasked.size), NOCOV)
+    if matrix.size > 0:
+        # Map each 5' and 3' end coordinate to its index in the unmasked
+        # positions of the section.
+        pos5_indexes = calc_inverse(section_unmasked,
+                                    require=(section.end3 + 1),
+                                    fill=True,
+                                    fill_rev=True)
+        pos3_indexes = calc_inverse(section_unmasked,
+                                    require=section.end3,
+                                    fill=True,
+                                    fill_rev=False) + 1
+        # Fill all covered positions with matches.
+        read_indexes = np.arange(num_reads)
+        for s in range(num_segments):
+            end5s = seg_end5s[:, s]
+            end3s = seg_end3s[:, s]
+            if np.ma.is_masked(end5s) or np.ma.is_masked(end3s):
+                unmasked_read_indexes = read_indexes[~(end5s.mask | end3s.mask)]
+                end5s = end5s.data[unmasked_read_indexes]
+                end3s = end3s.data[unmasked_read_indexes]
+            else:
+                unmasked_read_indexes = read_indexes
+            if unmasked_read_indexes.size > 0:
+                _fill_matches(matrix,
+                              pos5_indexes[end5s],
+                              pos3_indexes[end3s],
+                              unmasked_read_indexes)
+        # Overlay the mutation data.
+        read_indexes = calc_inverse(read_nums)
+        for pos in section_unmasked:
+            if rels := muts.get(pos):
+                column = matrix[:, pos5_indexes[pos]]
+                for rel, reads in rels.items():
+                    column[read_indexes[reads]] = rel
+    return pd.DataFrame(matrix, read_nums, section.unmasked)
+
+
+class MutsBatch(EndCoords, ReadBatch, ABC):
     """ Batch of mutational data. """
 
     def __init__(self, *,
-                 muts: dict[int, dict[int, list[int] | np.ndarray]],
-                 end5s: list[int] | np.ndarray,
-                 mid5s: list[int] | np.ndarray | None,
-                 mid3s: list[int] | np.ndarray | None,
-                 end3s: list[int] | np.ndarray,
-                 masked_read_nums: list[int] | None = None,
+                 section: Section,
                  sanitize: bool = True,
+                 muts: dict[int, dict[int, list[int] | np.ndarray]],
+                 masked_read_nums: np.ndarray | list[int] | None = None,
                  **kwargs):
-        super().__init__(**kwargs)
-        if sanitize:
-            # Sanitize all coordinates, which can be slow.
-            end5s, mid5s, mid3s, end3s = sanitize_ends(self.max_pos,
-                                                       end5s,
-                                                       mid5s,
-                                                       mid3s,
-                                                       end3s)
-        else:
-            # Only ensure mid5s and mid3s are consistent, which is fast.
-            has_mids(mid5s, mid3s)
-        ensure_same_length(end5s, end3s, "end5s", "end3s")
-        # Store the coordinates.
-        self.end5s = end5s
-        self._mid5s = mid5s
-        self._mid3s = mid3s
-        self.end3s = end3s
-        if masked_read_nums is not None:
-            self.masked_read_nums = np.array(masked_read_nums, dtype=int)
+        super().__init__(section=section, sanitize=sanitize, **kwargs)
         # Validate and store the mutations.
-        self.muts = {pos: {REL_TYPE(rel): np.asarray(reads, self.read_dtype)
-                           for rel, reads in muts[pos].items()}
-                     for pos in (sanitize_pos(muts, self.max_pos)
-                                 if sanitize
-                                 else muts)}
+        self._muts = sanitize_muts(muts, section, self.read_dtype, sanitize)
+        if masked_read_nums is not None:
+            self.masked_read_nums = np.asarray(masked_read_nums, dtype=int)
 
     @property
-    def num_pos(self):
-        """ Number of positions in use. """
-        return self.pos_nums.size
-
-    @property
-    @abstractmethod
-    def max_pos(self) -> int:
-        """ Maximum allowed position. """
+    def muts(self):
+        """ Reads with each type of mutation at each position. """
+        return self._muts
 
     @cached_property
-    def pos_dtype(self):
-        """ Data type for position numbers. """
-        return fit_uint_type(self.max_pos)
-
-    @cached_property
-    @abstractmethod
-    def pos_nums(self) -> np.ndarray:
+    def pos_nums(self):
         """ Positions in use. """
+        return np.fromiter(self.muts, self.pos_dtype)
 
     @property
-    def mid5s(self):
-        return self._mid5s  # compatibility
-
-    @property
-    def mid3s(self):
-        return self._mid3s  # compatibility
-
-    @property
+    @abstractmethod
     def read_weights(self) -> pd.DataFrame | None:
         """ Weights for each read when computing counts. """
-        read_weights = None
-        if self.masked_reads_bool.any():
-            read_weights = np.ones(self.num_reads)
-            read_weights[self.masked_reads_bool] = 0
-            read_weights = pd.DataFrame(read_weights)
-        return read_weights
 
     @cached_property
-    def contiguous_reads(self) -> np.ndarray:
-        """ Whether each read is made of contiguous mates. """
-        if has_mids(self.mid5s, self.mid3s):
-            return contiguous_mates(self.mid5s, self.mid3s)
-        # If the 5' and 3' middle coordinates are absent, then every
-        # read is assumed to be contiguous.
-        return np.ones(self.num_reads, dtype=bool)
-
-    @cached_property
-    def all_contiguous_reads(self) -> bool:
-        """ Whether all reads are contiguous. """
-        if has_mids(self.mid5s, self.mid3s):
-            return np.all(self.contiguous_reads)
-        return True
-
-    @cached_property
-    def num_contiguous_reads(self):
-        """ Number of contiguous reads. """
-        if has_mids(self.mid5s, self.mid3s):
-            n = int(np.sum(self.contiguous_reads))
-            if n > self.num_reads:
-                raise ValueError(f"{self} cannot have more contiguous reads "
-                                 f"({n}) than total reads ({self.num_reads})")
-            return n
-        return self.num_reads
-
-    @cached_property
-    def num_discontiguous_reads(self):
-        """ Number of discontiguous reads. """
-        return self.num_reads - self.num_contiguous_reads
-
-    @cached_property
-    def end_counts(self):
-        """ Counts of end coordinates. """
-        return count_end_coords(self.end5s, self.end3s, self.read_weights)
+    def read_end_counts(self):
+        """ Counts of read end coordinates. """
+        return count_end_coords(self.read_end5s,
+                                self.read_end3s,
+                                self.read_weights)
 
 
-class ReflenMutsBatch(MutsBatch, ABC):
-    """ Batch of mutational data with only a known reference length. """
+def _add_to_column(added: pd.Series | pd.DataFrame,
+                   frame: pd.DataFrame,
+                   column: str):
+    """ Add the values in `added` to the column `column` of `frame`. """
+    frame_col = frame[column]
+    if not frame_col.index.equals(added.index):
+        raise ValueError(f"Got different indexes for frame {frame_col.index} "
+                         f"and added values {added.index}")
+    if (isinstance(added, pd.DataFrame)
+            and not frame_col.columns.equals(added.columns)):
+        raise ValueError(f"Got different columns for frame {frame_col.columns} "
+                         f"and added values {added.columns}")
+    frame[column] = (frame_col + added).values
 
-    def __init__(self, *, reflen: int, **kwargs):
-        self.seqlen = reflen
-        super().__init__(**kwargs)
 
-    @property
-    def max_pos(self) -> int:
-        return self.seqlen
+class SectionMutsBatch(MutsBatch, ABC):
+    """ Batch of mutational data that knows its section. """
 
-
-class RefseqMutsBatch(MutsBatch, ABC):
-    """ Batch of mutational data with a known reference sequence. """
-
-    def __init__(self, *, refseq: DNA, **kwargs):
-        self.refseq = refseq
-        super().__init__(**kwargs)
-
-    @property
-    def max_pos(self):
-        return len(self.refseq)
-
-    @cached_property
-    def pos_index(self):
-        return seq_pos_to_index(self.refseq, self.pos_nums, 1)
-
-    @cached_property
-    def count_base_types(self):
-        bases = self.pos_index.get_level_values(BASE_NAME)
-        base_types, counts = np.unique(bases, return_counts=True)
-        return pd.Series(counts, base_types)
+    def __init__(self, *, section: Section, **kwargs):
+        self.section = section
+        super().__init__(section=section, **kwargs)
 
     def iter_windows(self, size: int):
-        """ Yield the positions in each window of size positions of the
-        section. """
+        """ Yield the positions in each window of the section. """
         yield from iter_windows(self.pos_nums, size)
 
     @cached_property
-    def coverage_matrix(self):
-        return get_coverage_matrix(self.pos_index,
-                                   self.end5s,
-                                   self.mid5s,
-                                   self.mid3s,
-                                   self.end3s,
-                                   self.read_nums)
+    def pos_index(self):
+        """ Index of unmasked positions and bases. """
+        return self.section.unmasked
 
     @cached_property
+    def _coverage(self):
+        """ Coverage per position and per read. """
+        return calc_coverage(self.pos_index,
+                             self.read_nums,
+                             self.seg_end5s,
+                             self.seg_end3s,
+                             self.read_weights)
+
+    @property
     def cover_per_pos(self):
         """ Number of reads covering each position. """
-        return get_cover_per_pos(self.coverage_matrix, self.read_weights)
+        per_pos, per_read = self._coverage
+        return per_pos
 
-    @cached_property
+    @property
     def cover_per_read(self):
         """ Number of positions covered by each read. """
-        return get_cover_per_read(self.coverage_matrix)
+        per_pos, per_read = self._coverage
+        return per_read
 
     @cached_property
     def rels_per_pos(self):
         """ For each relationship, the number of reads at each position
         with that relationship. """
-        return get_rels_per_pos(self.muts,
-                                self.num_reads,
-                                self.cover_per_pos,
-                                self.read_indexes,
-                                self.read_weights)
+        return calc_rels_per_pos(self.muts,
+                                 self.num_reads,
+                                 self.cover_per_pos,
+                                 self.read_indexes,
+                                 self.read_weights)
 
     @cached_property
     def rels_per_read(self):
         """ For each relationship, the number of positions in each read
         with that relationship. """
-        return get_rels_per_read(self.muts,
-                                 self.pos_index,
-                                 self.cover_per_read,
-                                 self.read_indexes)
+        return calc_rels_per_read(self.muts,
+                                  self.pos_index,
+                                  self.cover_per_read,
+                                  self.read_indexes)
+
+    @cached_property
+    def matrix(self):
+        """ Matrix of relationships at each position in each read. """
+        return calc_muts_matrix(self.section,
+                                self.read_nums,
+                                self.seg_end5s,
+                                self.seg_end3s,
+                                self.muts)
 
     def reads_per_pos(self, pattern: RelPattern):
         """ For each position, find all reads matching a relationship
         pattern. """
-        return get_reads_per_pos(pattern, self.muts, self.pos_index)
+        return calc_reads_per_pos(pattern, self.muts, self.pos_index)
 
     def count_per_pos(self, pattern: RelPattern):
         """ Count the reads that fit a relationship pattern at each
         position in a section. """
-        return get_count_per_pos(pattern,
-                                 self.cover_per_pos,
-                                 self.rels_per_pos)
+        return calc_count_per_pos(pattern,
+                                  self.cover_per_pos,
+                                  self.rels_per_pos)
 
     def count_per_read(self, pattern: RelPattern):
         """ Count the positions in a section that fit a relationship
         pattern in each read. """
-        return get_count_per_read(pattern,
-                                  self.cover_per_read,
-                                  self.rels_per_read,
-                                  self.read_weights)
+        return calc_count_per_read(pattern,
+                                   self.cover_per_read,
+                                   self.rels_per_read)
+
+    def count_all(self,
+                  patterns: dict[str, RelPattern],
+                  ks: Iterable[int] | None = None, *,
+                  count_ends: bool = True,
+                  count_pos: bool = True,
+                  count_read: bool = True):
+        """ Calculate all counts. """
+        # Determine whether the data are clustered.
+        header = make_header(rels=list(patterns), ks=ks)
+        if header.clustered():
+            dtype = float
+            rel_header = header.get_rel_header()
+        else:
+            dtype = int
+            rel_header = header
+        zero = dtype(0)
+        # Initialize the counts to 0.
+        count_per_pos = (
+            pd.DataFrame(zero, self.section.unmasked, header.index)
+            if count_pos else None
+        )
+        count_per_read = (
+            pd.DataFrame(0, self.batch_read_index, rel_header.index)
+            if count_read else None
+        )
+        for column, pattern in patterns.items():
+            if count_per_pos is not None:
+                # Count the matching reads per position.
+                _, count_per_pos_pattern = self.count_per_pos(pattern)
+                _add_to_column(count_per_pos_pattern, count_per_pos, column)
+            if count_per_read is not None:
+                # Count the matching positions per read.
+                _, count_per_read_pattern = self.count_per_read(pattern)
+                count_per_read.loc[:, column] = count_per_read_pattern.values
+        return (self.num_reads,
+                (self.read_end_counts if count_ends else None),
+                count_per_pos,
+                count_per_read)
 
     def reads_noclose_muts(self, pattern: RelPattern, min_gap: int):
         """ List the reads with no two mutations too close. """
@@ -271,13 +359,14 @@ class RefseqMutsBatch(MutsBatch, ABC):
                 nonprox &= read_counts <= 1
         return self.read_nums[nonprox]
 
-    def iter_reads(self, pattern: RelPattern):
-        """ Yield the 5'/3' end/middle positions and the positions that
-        are mutated in each read. """
-        if self.num_discontiguous_reads:
-            raise ValueError(f"Iteration over {self} is not supported "
-                             f"because it has {self.num_discontiguous_reads} "
-                             "(> 0) discontiguous read(s)")
+    def iter_reads(self,
+                   pattern: RelPattern,
+                   only_read_ends: bool = False,
+                   require_contiguous: bool = False):
+        """ End coordinates and mutated positions in each read. """
+        if require_contiguous and self.num_discontiguous:
+            raise ValueError("This function requires contiguous reads, but got "
+                             f"{self.num_discontiguous} discontiguous read(s)")
         reads_per_pos = self.reads_per_pos(pattern)
         # Find the maximum number of mutations in any read.
         max_mut_count = max(sum(map(Counter, reads_per_pos.values()),
@@ -294,22 +383,22 @@ class RefseqMutsBatch(MutsBatch, ABC):
             mut_pos[row_idxs, np.count_nonzero(mut_pos[row_idxs], axis=1)] = pos
         # Count the mutations in each read.
         mut_counts = np.count_nonzero(mut_pos, axis=1)
-        # For each read, yield the 5'/3' end/middle positions and the
-        # mutated positions as a tuple.
-        for read_num, end5, end3, muts, count in zip(self.read_nums,
-                                                     self.end5s,
-                                                     self.end3s,
-                                                     mut_pos,
-                                                     mut_counts,
-                                                     strict=True):
-            yield read_num, ((end5, end3), tuple(muts[:count]))
-
-
-class PartialMutsBatch(PartialReadBatch, MutsBatch, ABC):
-
-    @cached_property
-    def pos_nums(self):
-        return np.array(list(self.muts))
+        # For each read, yield the end coordinates and mutated positions
+        # as a tuple.
+        if only_read_ends:
+            end5s = self.read_end5s[:, np.newaxis]
+            end3s = self.read_end3s[:, np.newaxis]
+        else:
+            end5s = self.seg_end5s
+            end3s = self.seg_end3s
+        for read_num, (end5, end3), muts, count in zip(self.read_nums,
+                                                       zip(end5s,
+                                                           end3s,
+                                                           strict=True),
+                                                       mut_pos,
+                                                       mut_counts,
+                                                       strict=True):
+            yield read_num, ((tuple(end5), tuple(end3)), tuple(muts[:count]))
 
 ########################################################################
 #                                                                      #

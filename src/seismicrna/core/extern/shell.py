@@ -1,25 +1,21 @@
-import logging
 import shlex
 from functools import wraps
 from pathlib import Path
 from subprocess import CompletedProcess, run
 from typing import Any, Callable
 
-logger = logging.getLogger(__name__)
+from ..logs import logger
 
 # Commands for external applications
+ECHO_CMD = "echo"
+WORD_COUNT_CMD = "wc"
+GUNZIP_CMD = "gunzip"
+FASTP_CMD = "fastp"
 BOWTIE2_CMD = "bowtie2"
 BOWTIE2_BUILD_CMD = "bowtie2-build"
-RNASTRUCTURE_CT2DOT_CMD = "ct2dot"
-CUTADAPT_CMD = "cutadapt"
-RNASTRUCTURE_DOT2CT_CMD = "dot2ct"
-ECHO_CMD = "echo"
-FASTQC_CMD = "fastqc"
+SAMTOOLS_CMD = "samtools"
 RNASTRUCTURE_FOLD_CMD = "Fold"
 RNASTRUCTURE_FOLD_SMP_CMD = "Fold-smp"
-GUNZIP_CMD = "gunzip"
-SAMTOOLS_CMD = "samtools"
-WORD_COUNT_CMD = "wc"
 
 
 def args_to_cmd(args: list[Any]):
@@ -45,21 +41,24 @@ def cmds_to_subshell(cmds: list[str]):
 def run_cmd(cmd: str, text: bool | None = True):
     """ Run a command via subprocess.run(), with logging. """
     # Log the command with which the process was run.
-    logger.debug(f"Running command via the shell:\n{cmd}")
+    logger.routine(f"Began running command via the shell:\n{cmd}")
     # Run the process and capture the output.
     process = run(cmd,
                   shell=True,
                   capture_output=text is not None,
                   text=text)
-    # Format a message depending on whether the process passed.
-    passed = process.returncode == 0
-    status = "PASSED" if passed else f"FAILED with code {process.returncode}"
+    # Format a message depending on whether the process succeeded.
+    succeeded = process.returncode == 0
+    if succeeded:
+        status = "SUCCEEDED"
+    else:
+        status = f"FAILED with code {process.returncode}"
     message = "\n".join([f"Shell command {status}:\n{cmd}\n",
                          f"STDOUT:\n{process.stdout}\n",
                          f"STDERR:\n{process.stderr}\n"])
-    if not passed:
+    if not succeeded:
         raise RuntimeError(message)
-    logger.debug(message)
+    logger.routine(message)
     return process
 
 
@@ -122,11 +121,16 @@ class ShellCommand(object):
             # not already exist.
             opath.parent.mkdir(parents=True, exist_ok=True)
         action = self._format_action(ipath, opath)
-        logger.info(f"Began {action}")
+        logger.routine(f"Began {action}")
         # Generate and run the command.
         process = run_cmd(self._make_command(ipath, opath, **kwargs))
-        logger.info(f"Ended {action}")
-        return self._parse_output(process) if self._parse_output else process
+        logger.routine(f"Ended {action}")
+        if self._parse_output:
+            logger.routine(f"Began parsing output of {action}")
+            output = self._parse_output(process)
+            logger.routine(f"Ended parsing output of {action}")
+            return output
+        return process
 
 ########################################################################
 #                                                                      #
