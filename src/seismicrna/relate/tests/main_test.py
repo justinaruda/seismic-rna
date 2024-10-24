@@ -16,19 +16,55 @@ SAMPLE = "sample"
 REF = "ref"
 REF_SEQ = DNA("CGGCATATC")
 REFS = "refs"
+
 SAM_DATA_EMPTY = [
     ("@SQ", f"SN:{REF}", f"LN:{len(REF_SEQ)}"),
 ]
+
+# Read CGGCATATC Qual
+# -------------------
+#    1 CG-C         6
+#    2    CA--TC    5
+#    3   gCaT       9
+#    4    CtTt      7
+# (Lower quality bases in lowercase.)
 SAM_DATA_SINGLE = [
-    ("@SQ", f"SN:{REF}", f"LN:{len(REF_SEQ)}"),
-    ("Read1", 0, REF, 1, 6, "2M1D1M", "*", 0, 0, "CGC", "III"),
-    ("Read2", 0, REF, 4, 5, "2M2D2M", "*", 0, 0, "CATC", "IIII"),
-    ("Read3", 0, REF, 3, 9, "4M", "*", 0, 0, "GCAT", "HIHI"),
-    ("Read4", 0, REF, 4, 7, "4M", "*", 0, 0, "CGTA", "IHIH"),
+    ["@SQ", f"SN:{REF}", f"LN:{len(REF_SEQ)}"],
+    ["Read1", 0, REF, 1, 6, "2M1D1M", "*", 0, 0, "CGC", "III"],
+    ["Read2", 0, REF, 4, 5, "2M2D2M", "*", 0, 0, "CATC", "IIII"],
+    ["Read3", 0, REF, 3, 9, "4M", "*", 0, 0, "GCAT", "HIHI"],
+    ["Read4", 0, REF, 4, 7, "4M", "*", 0, 0, "CTTG", "IHIH"],
+]
+
+# Read CGGCATATC Qual
+# -------------------
+#  1-1 CG-C         6
+#  1-2  gtCATG      6
+#  2-2     At-TC    7
+#  3-1    CAT--C    5
+#  3-2   GCat       5
+#  4-1  GGCTT       9
+#  4-2    CaTATC    9
+#  5-1 cGGC         7
+#  6-1      TATG    8
+#  6-2 cGGC         8
+# (Lower quality bases in lowercase.)
+SAM_DATA_PAIRED = [
+    ["@SQ", f"SN:{REF}", f"LN:{len(REF_SEQ)}"],
+    ["Read1", 83, REF, 1, 6, "2M1D1M", REF, 2, 7, "CGC", "III"],
+    ["Read1", 163, REF, 2, 6, "6M", REF, 1, 7, "GTCATG", "HHIIII"],
+    ["Read2", 145, REF, 5, 7, "2M1D2M", "*", 0, 5, "ATTC", "IHII"],
+    ["Read3", 83, REF, 4, 5, "3M2D1M", REF, 3, 7, "CATC", "IIII"],
+    ["Read3", 163, REF, 3, 5, "4M", REF, 4, 7, "GCAT", "IIHH"],
+    ["Read4", 99, REF, 2, 9, "5M", REF, 4, 8, "GGCTT", "IIIII"],
+    ["Read4", 147, REF, 4, 9, "6M", REF, 2, 8, "CATATC", "IHIIII"],
+    ["Read5", 65, REF, 1, 7, "4M", "*", 0, 4, "CGGC", "HIII"],
+    ["Read6", 99, REF, 6, 8, "4M", REF, 1, 9, "TATG", "IIII"],
+    ["Read6", 147, REF, 1, 8, "4M", REF, 6, 9, "CGGC", "HIII"],
 ]
 
 
-def write_sam_file(tmp_dir: Path, data: list[tuple[[str | int], ...]]):
+def write_sam_file(tmp_dir: Path, data: list[list]):
     sam_dir = tmp_dir.joinpath(SAMPLE, path.CMD_ALIGN_DIR)
     sam_dir.mkdir(parents=True)
     sam_file = sam_dir.joinpath(f"{REF}.sam")
@@ -48,12 +84,12 @@ def load_batches(tmp_dir: Path):
                                    path.CMD_REL_DIR,
                                    REF,
                                    "relate-report.json")
-    dataset = RelateDataset.load(report_file)
+    dataset = RelateDataset(report_file)
     return list(dataset.iter_batches())
 
 
 def extract_batches(batches: list[SectionMutsBatch]):
-    read_nums = [batch.read_nums.tolist() for batch in batches]
+    read_nums = [list(batch.read_nums) for batch in batches]
     seg_end5s = [batch.seg_end5s.tolist() for batch in batches]
     seg_end3s = [batch.seg_end3s.tolist() for batch in batches]
     muts = [{pos: {mut: reads.tolist() for mut, reads in muts.items()}
@@ -71,19 +107,19 @@ class TestRelate(ut.TestCase, ABC):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._tmp_dir: Path | None = None
+        self._out_dir: Path | None = None
         self._fasta_file: Path | None = None
         self._sam_file: Path | None = None
 
     def setUp(self):
-        self._tmp_dir = path.randdir(prefix="tmp-")
-        self._fasta_file = write_fasta_file(self._tmp_dir)
-        self._sam_file = write_sam_file(self._tmp_dir, self.get_sam_data())
+        self._out_dir = path.randdir(prefix="out-")
+        self._fasta_file = write_fasta_file(self._out_dir)
+        self._sam_file = write_sam_file(self._out_dir, self.get_sam_data())
         set_config(verbosity=Level.SEVERE, raise_on_error=True)
 
     def tearDown(self):
-        rmtree(self._tmp_dir)
-        self._tmp_dir = None
+        rmtree(self._out_dir)
+        self._out_dir = None
         self._fasta_file = None
         self._sam_file = None
         set_config()
@@ -97,14 +133,14 @@ class TestRelate(ut.TestCase, ABC):
                 **kwargs):
         run(str(self._fasta_file),
             (str(self._sam_file),),
-            out_dir=str(self._tmp_dir),
+            out_dir=str(self._out_dir),
             min_reads=min_reads,
             min_mapq=min_mapq,
             min_phred=min_phred,
             clip_end5=clip_end5,
             clip_end3=clip_end3,
             **kwargs)
-        return load_batches(self._tmp_dir)
+        return load_batches(self._out_dir)
 
 
 class TestRelateEmpty(TestRelate):
@@ -132,20 +168,19 @@ class TestRelateSingle(TestRelate):
 
     def test_noargs(self):
         read_nums, seg_end5s, seg_end3s, muts = extract_batches(self.batches())
-        self.assertEqual(len(read_nums), 1)
-        self.assertListEqual(read_nums[0], [0, 1, 2, 3])
-        self.assertListEqual(seg_end5s[0], [[1], [4], [3], [4]])
-        self.assertListEqual(seg_end3s[0], [[4], [9], [6], [7]])
-        self.assertDictEqual(muts[0],
-                             {1: {},
-                              2: {3: [0]},
-                              3: {3: [0]},
-                              4: {},
-                              5: {3: [1], 64: [3]},
-                              6: {3: [1]},
-                              7: {3: [1]},
-                              8: {3: [1]},
-                              9: {}})
+        self.assertListEqual(read_nums, [[0, 1, 2, 3]])
+        self.assertListEqual(seg_end5s, [[[1], [4], [3], [4]]])
+        self.assertListEqual(seg_end3s, [[[4], [9], [6], [7]]])
+        self.assertListEqual(muts,
+                             [{1: {},
+                               2: {3: [0]},
+                               3: {3: [0]},
+                               4: {},
+                               5: {3: [1], 128: [3]},
+                               6: {3: [1]},
+                               7: {3: [1], 64: [3]},
+                               8: {3: [1]},
+                               9: {}}])
 
     def test_min_reads(self):
         self.assertRaisesRegex(ValueError,
@@ -164,40 +199,344 @@ class TestRelateSingle(TestRelate):
         read_nums, seg_end5s, seg_end3s, muts = extract_batches(self.batches(
             min_phred=40
         ))
-        self.assertEqual(len(read_nums), 1)
-        self.assertListEqual(read_nums[0], [0, 1, 2, 3])
-        self.assertListEqual(seg_end5s[0], [[1], [4], [3], [4]])
-        self.assertListEqual(seg_end3s[0], [[4], [9], [6], [7]])
-        self.assertDictEqual(muts[0],
-                             {1: {},
-                              2: {3: [0]},
-                              3: {3: [0], 177: [2]},
-                              4: {},
-                              5: {3: [1], 225: [2, 3]},
-                              6: {3: [1]},
-                              7: {3: [1], 225: [3]},
-                              8: {3: [1]},
-                              9: {}})
+        self.assertListEqual(read_nums, [[0, 1, 2, 3]])
+        self.assertListEqual(seg_end5s, [[[1], [4], [3], [4]]])
+        self.assertListEqual(seg_end3s, [[[4], [9], [6], [7]]])
+        self.assertListEqual(muts,
+                             [{1: {},
+                               2: {3: [0]},
+                               3: {3: [0], 177: [2]},
+                               4: {},
+                               5: {3: [1], 225: [2, 3]},
+                               6: {3: [1]},
+                               7: {3: [1], 225: [3]},
+                               8: {3: [1]},
+                               9: {}}])
 
     def test_clip(self):
         read_nums, seg_end5s, seg_end3s, muts = extract_batches(self.batches(
             clip_end5=1,
             clip_end3=1,
         ))
-        self.assertEqual(len(read_nums), 1)
-        self.assertListEqual(read_nums[0], [0, 1, 2, 3])
-        self.assertListEqual(seg_end5s[0], [[2], [5], [4], [5]])
-        self.assertListEqual(seg_end3s[0], [[3], [8], [5], [6]])
-        self.assertDictEqual(muts[0],
-                             {1: {},
-                              2: {3: [0]},
-                              3: {3: [0]},
-                              4: {},
-                              5: {3: [1], 64: [3]},
-                              6: {3: [1]},
-                              7: {3: [1]},
-                              8: {3: [1]},
-                              9: {}})
+        self.assertListEqual(read_nums, [[0, 1, 2, 3]])
+        self.assertListEqual(seg_end5s, [[[2], [5], [4], [5]]])
+        self.assertListEqual(seg_end3s, [[[3], [8], [5], [6]]])
+        self.assertListEqual(muts,
+                             [{1: {},
+                               2: {3: [0]},
+                               3: {3: [0]},
+                               4: {},
+                               5: {3: [1], 128: [3]},
+                               6: {3: [1]},
+                               7: {3: [1]},
+                               8: {3: [1]},
+                               9: {}}])
+
+    def test_batch_size_1(self):
+        read_nums, seg_end5s, seg_end3s, muts = extract_batches(self.batches(
+            batch_size=1
+        ))
+        self.assertListEqual(read_nums, [[0], [0], [0], [0]])
+        self.assertListEqual(seg_end5s, [[[1]], [[4]], [[3]], [[4]]])
+        self.assertListEqual(seg_end3s, [[[4]], [[9]], [[6]], [[7]]])
+        self.assertListEqual(muts,
+                             [{1: {},
+                               2: {3: [0]},
+                               3: {3: [0]},
+                               4: {},
+                               5: {},
+                               6: {},
+                               7: {},
+                               8: {},
+                               9: {}},
+                              {1: {},
+                               2: {},
+                               3: {},
+                               4: {},
+                               5: {3: [0]},
+                               6: {3: [0]},
+                               7: {3: [0]},
+                               8: {3: [0]},
+                               9: {}},
+                              {1: {},
+                               2: {},
+                               3: {},
+                               4: {},
+                               5: {},
+                               6: {},
+                               7: {},
+                               8: {},
+                               9: {}},
+                              {1: {},
+                               2: {},
+                               3: {},
+                               4: {},
+                               5: {128: [0]},
+                               6: {},
+                               7: {64: [0]},
+                               8: {},
+                               9: {}}])
+
+    def test_batch_size_3(self):
+        read_nums, seg_end5s, seg_end3s, muts = extract_batches(self.batches(
+            batch_size=3
+        ))
+        self.assertListEqual(read_nums, [[0, 1, 2], [0]])
+        self.assertListEqual(seg_end5s, [[[1], [4], [3]], [[4]]])
+        self.assertListEqual(seg_end3s, [[[4], [9], [6]], [[7]]])
+        self.assertListEqual(muts,
+                             [{1: {},
+                               2: {3: [0]},
+                               3: {3: [0]},
+                               4: {},
+                               5: {3: [1]},
+                               6: {3: [1]},
+                               7: {3: [1]},
+                               8: {3: [1]},
+                               9: {}},
+                              {1: {},
+                               2: {},
+                               3: {},
+                               4: {},
+                               5: {128: [0]},
+                               6: {},
+                               7: {64: [0]},
+                               8: {},
+                               9: {}}])
+
+
+class TestRelatePaired(TestRelate):
+
+    @classmethod
+    def get_sam_data(cls):
+        return SAM_DATA_PAIRED
+
+    def test_noargs(self):
+        read_nums, seg_end5s, seg_end3s, muts = extract_batches(self.batches())
+        self.assertListEqual(read_nums, [[0, 1, 2, 3, 4, 5]])
+        self.assertListEqual(seg_end5s,
+                             [[[2, 1], [3, 4], [2, 4], [6, 1], [5, 5], [1, 1]]])
+        self.assertListEqual(seg_end3s,
+                             [[[7, 4], [6, 9], [6, 9], [9, 4], [9, 9], [4, 4]]])
+        self.assertListEqual(muts,
+                             [{1: {},
+                               2: {},
+                               3: {0: [0]},
+                               4: {},
+                               5: {0: [2]},
+                               6: {},
+                               7: {2: [4], 3: [1], 64: [0]},
+                               8: {3: [1]},
+                               9: {64: [3]}}])
+
+    def test_min_reads(self):
+        self.assertRaisesRegex(ValueError,
+                               "Insufficient reads in alignment map",
+                               self.batches,
+                               min_reads=7)
+
+    def test_min_mapq(self):
+        self.assertRaisesRegex(ValueError,
+                               "Read 'Read3' mapped with quality score 5, "
+                               "less than the minimum of 6",
+                               self.batches,
+                               min_mapq=6)
+
+    def test_min_phred(self):
+        read_nums, seg_end5s, seg_end3s, muts = extract_batches(self.batches(
+            min_phred=40
+        ))
+        self.assertListEqual(read_nums, [[0, 1, 2, 3, 4, 5]])
+        self.assertListEqual(seg_end5s,
+                             [[[2, 1], [3, 4], [2, 4], [6, 1], [5, 5], [1, 1]]])
+        self.assertListEqual(seg_end3s,
+                             [[[7, 4], [6, 9], [6, 9], [9, 4], [9, 9], [4, 4]]])
+        self.assertListEqual(muts,
+                             [{1: {209: [3, 5]},
+                               2: {},
+                               3: {},
+                               4: {},
+                               5: {128: [2]},
+                               6: {115: [4]},
+                               7: {3: [1], 64: [0], 227: [4]},
+                               8: {3: [1]},
+                               9: {64: [3]}}])
+
+    def test_clip(self):
+        read_nums, seg_end5s, seg_end3s, muts = extract_batches(self.batches(
+            clip_end5=1,
+            clip_end3=1,
+        ))
+        self.assertListEqual(read_nums, [[0, 1, 2, 3, 4, 5]])
+        self.assertListEqual(seg_end5s,
+                             [[[3, 2], [4, 5], [3, 5], [7, 2], [6, 6], [2, 2]]])
+        self.assertListEqual(seg_end3s,
+                             [[[6, 3], [5, 8], [5, 8], [8, 3], [8, 8], [3, 3]]])
+        self.assertListEqual(muts,
+                             [{1: {},
+                               2: {3: [0]},
+                               3: {0: [0]},
+                               4: {},
+                               5: {0: [2]},
+                               6: {3: [1]},
+                               7: {2: [4], 3: [1]},
+                               8: {3: [1]},
+                               9: {}}])
+
+    def test_batch_size_1(self):
+        read_nums, seg_end5s, seg_end3s, muts = extract_batches(self.batches(
+            batch_size=1
+        ))
+        self.assertListEqual(read_nums, [[0], [0], [0], [0], [0], [0]])
+        self.assertListEqual(
+            seg_end5s,
+            [[[2, 1]], [[3, 4]], [[2, 4]], [[6, 1]], [[5, 5]], [[1, 1]]]
+        )
+        self.assertListEqual(
+            seg_end3s,
+            [[[7, 4]], [[6, 9]], [[6, 9]], [[9, 4]], [[9, 9]], [[4, 4]]]
+        )
+        self.assertListEqual(muts,
+                             [{1: {},
+                               2: {},
+                               3: {0: [0]},
+                               4: {},
+                               5: {},
+                               6: {},
+                               7: {64: [0]},
+                               8: {},
+                               9: {}},
+                              {1: {},
+                               2: {},
+                               3: {},
+                               4: {},
+                               5: {},
+                               6: {},
+                               7: {3: [0]},
+                               8: {3: [0]},
+                               9: {}},
+                              {1: {},
+                               2: {},
+                               3: {},
+                               4: {},
+                               5: {0: [0]},
+                               6: {},
+                               7: {},
+                               8: {},
+                               9: {}},
+                              {1: {},
+                               2: {},
+                               3: {},
+                               4: {},
+                               5: {},
+                               6: {},
+                               7: {},
+                               8: {},
+                               9: {64: [0]}},
+                              {1: {},
+                               2: {},
+                               3: {},
+                               4: {},
+                               5: {},
+                               6: {},
+                               7: {2: [0]},
+                               8: {},
+                               9: {}},
+                              {1: {},
+                               2: {},
+                               3: {},
+                               4: {},
+                               5: {},
+                               6: {},
+                               7: {},
+                               8: {},
+                               9: {}}])
+
+    def test_batch_size_4(self):
+        read_nums, seg_end5s, seg_end3s, muts = extract_batches(self.batches(
+            batch_size=4
+        ))
+        self.assertListEqual(read_nums, [[0, 1, 2, 3], [0, 1]])
+        self.assertListEqual(
+            seg_end5s,
+            [[[2, 1], [3, 4], [2, 4], [6, 1]], [[5, 5], [1, 1]]]
+        )
+        self.assertListEqual(
+            seg_end3s,
+            [[[7, 4], [6, 9], [6, 9], [9, 4]], [[9, 9], [4, 4]]]
+        )
+        self.assertListEqual(muts,
+                             [{1: {},
+                               2: {},
+                               3: {0: [0]},
+                               4: {},
+                               5: {0: [2]},
+                               6: {},
+                               7: {3: [1], 64: [0]},
+                               8: {3: [1]},
+                               9: {64: [3]}},
+                              {1: {},
+                               2: {},
+                               3: {},
+                               4: {},
+                               5: {},
+                               6: {},
+                               7: {2: [0]},
+                               8: {},
+                               9: {}}])
+
+    def test_batch_size_5(self):
+        read_nums, seg_end5s, seg_end3s, muts = extract_batches(self.batches(
+            batch_size=5
+        ))
+        self.assertListEqual(read_nums, [[0, 1, 2, 3, 4], [0]])
+        self.assertListEqual(
+            seg_end5s,
+            [[[2, 1], [3, 4], [2, 4], [6, 1], [5, 5]], [[1, 1]]]
+        )
+        self.assertListEqual(
+            seg_end3s,
+            [[[7, 4], [6, 9], [6, 9], [9, 4], [9, 9]], [[4, 4]]]
+        )
+        self.assertListEqual(muts,
+                             [{1: {},
+                               2: {},
+                               3: {0: [0]},
+                               4: {},
+                               5: {0: [2]},
+                               6: {},
+                               7: {2: [4], 3: [1], 64: [0]},
+                               8: {3: [1]},
+                               9: {64: [3]}},
+                              {1: {},
+                               2: {},
+                               3: {},
+                               4: {},
+                               5: {},
+                               6: {},
+                               7: {},
+                               8: {},
+                               9: {}}])
+
+    def test_batch_size_6(self):
+        read_nums, seg_end5s, seg_end3s, muts = extract_batches(self.batches(
+            batch_size=6
+        ))
+        self.assertListEqual(read_nums, [[0, 1, 2, 3, 4, 5]])
+        self.assertListEqual(seg_end5s,
+                             [[[2, 1], [3, 4], [2, 4], [6, 1], [5, 5], [1, 1]]])
+        self.assertListEqual(seg_end3s,
+                             [[[7, 4], [6, 9], [6, 9], [9, 4], [9, 9], [4, 4]]])
+        self.assertListEqual(muts,
+                             [{1: {},
+                               2: {},
+                               3: {0: [0]},
+                               4: {},
+                               5: {0: [2]},
+                               6: {},
+                               7: {2: [4], 3: [1], 64: [0]},
+                               8: {3: [1]},
+                               9: {64: [3]}}])
 
 
 if __name__ == "__main__":
