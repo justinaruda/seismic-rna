@@ -92,7 +92,7 @@ class MaskTable(AvgTable, ABC):
         return path.CMD_MASK_DIR
 
 
-class MaskPosTable(MaskTable, PartialPositionTable, ABC):
+class MaskPositionTable(MaskTable, PartialPositionTable, ABC):
     pass
 
 
@@ -100,7 +100,7 @@ class MaskReadTable(MaskTable, PartialReadTable, ABC):
     pass
 
 
-class MaskPosTableWriter(PositionTableWriter, MaskPosTable):
+class MaskPositionTableWriter(PositionTableWriter, MaskPositionTable):
     pass
 
 
@@ -108,7 +108,7 @@ class MaskReadTableWriter(ReadTableWriter, MaskReadTable):
     pass
 
 
-class MaskPosTableLoader(PositionTableLoader, MaskPosTable):
+class MaskPositionTableLoader(PositionTableLoader, MaskPositionTable):
     pass
 
 
@@ -199,7 +199,7 @@ class MaskTabulator(PartialTabulator, AverageTabulator, ABC):
 
     @classmethod
     def table_types(cls):
-        return [MaskPosTableWriter, MaskReadTableWriter]
+        return [MaskPositionTableWriter, MaskReadTableWriter]
 
 
 class MaskBatchTabulator(MaskTabulator, BatchTabulator):

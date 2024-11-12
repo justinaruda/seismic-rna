@@ -116,19 +116,18 @@ class Table(ABC):
     @abstractmethod
     def path_segs(cls) -> tuple[path.Segment, ...]:
         """ Table's path segments. """
-    
+
+        
     @classmethod
     def default_path_fields(cls):
         """ Default values of the path fields. """
-        print("default",cls, cls.kind())
         return {path.CMD: cls.kind(),
                 path.TABLE: cls.kind(),
                 path.EXT: cls.ext()}
-        
+
     @classmethod
     def build_path(cls, **path_fields):
         """ Build the path of a table's CSV file using the fields. """
-        print(cls, cls.kind(), cls.path_segs(), cls.default_path_fields())
         return path.build(*cls.path_segs(),
                           **(cls.default_path_fields() | path_fields))
 

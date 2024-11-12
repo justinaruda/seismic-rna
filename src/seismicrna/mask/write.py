@@ -1,6 +1,7 @@
 import json
 from collections import defaultdict
 from datetime import datetime
+from itertools import chain
 from pathlib import Path
 from typing import Iterable
 
@@ -22,7 +23,7 @@ from ..core.seq import FIELD_REF, POS_NAME, Section, index_to_pos
 from ..core.table import MUTAT_REL, INFOR_REL
 from ..core.tmp import release_to_out
 from ..core.write import need_write
-from ..relate.data import RelateDataset, PoolDataset
+from ..relate.data import RelateDataset, PoolDataset, load_read_names_dataset
 
 
 class Masker(object):
@@ -30,6 +31,7 @@ class Masker(object):
 
     PATTERN_KEY = "pattern"
     MASK_READ_INIT = "read-init"
+    MASK_READ_LIST = "read-exclude"
     MASK_READ_NCOV = "read-ncov"
     MASK_READ_DISCONTIG = "read-discontig"
     MASK_READ_FINFO = "read-finfo"
@@ -50,6 +52,8 @@ class Masker(object):
                  mask_gu: bool,
                  mask_pos: list[tuple[str, int]],
                  mask_pos_file: Path | None,
+                 mask_read: list[str],
+                 mask_read_file: Path | None,
                  mask_discontig: bool,
                  min_ncov_read: int,
                  min_finfo_read: float,
@@ -84,6 +88,7 @@ class Masker(object):
         self.mask_polya = mask_polya
         self.mask_gu = mask_gu
         self.mask_pos = self._get_mask_pos(mask_pos, mask_pos_file)
+        self.mask_read = self._get_mask_read(mask_read, mask_read_file)
         # Set the parameters for filtering reads.
         if min_mut_gap > 0 and not mask_discontig:
             raise ValueError("The observer bias correction does not work with "
@@ -113,8 +118,12 @@ class Masker(object):
         self.max_procs = max_procs
 
     @property
-    def n_reads_premask(self):
+    def n_reads_init(self):
         return self._n_reads[self.MASK_READ_INIT]
+
+    @property
+    def n_reads_list(self):
+        return self._n_reads[self.MASK_READ_LIST]
 
     @property
     def n_reads_min_ncov(self):
@@ -178,25 +187,68 @@ class Masker(object):
         """ Whether to force-write each file. """
         return self._iter > 1
 
+    @property
+    def read_names_dataset(self):
+        """ Dataset of the read names. """
+        return load_read_names_dataset(self.dataset.report_file)
+
     def _get_mask_pos(self,
                       mask_pos: list[tuple[str, int]],
                       mask_pos_file: Path | None):
         """ List all positions to mask. """
         # Collect the positions to mask from the list.
+        dataset_ref = self.dataset.ref
         mask_pos = np.array([pos for ref, pos in mask_pos
-                             if ref == self.dataset.ref])
+                             if ref == dataset_ref],
+                            dtype=int)
         # Read positions to exclude from a file.
         if mask_pos_file is not None:
             mask_pos = np.concatenate([mask_pos,
                                        pd.read_csv(
                                            mask_pos_file,
                                            index_col=[FIELD_REF, POS_NAME]
-                                       ).loc[self.dataset.ref].index.values])
+                                       ).loc[dataset_ref].index.values])
         # Drop redundant positions and sort the remaining ones.
         mask_pos = np.unique(np.asarray(mask_pos, dtype=int))
         # Keep only the positions in the section.
         return mask_pos[np.logical_and(mask_pos >= self.section.end5,
                                        mask_pos <= self.section.end3)]
+
+    @staticmethod
+    def _get_mask_read(mask_read: Iterable[str],
+                       mask_read_file: Path | None):
+        """ List all reads to pre-exclude. """
+        # Ensure that the given read names are all strings.
+        mask_read = map(str, mask_read)
+        # List reads to exclude from a file.
+        if mask_read_file is not None:
+            with open(mask_read_file) as f:
+                # Ensure every read name is unique.
+                mask_read_combined = set(chain(mask_read, map(str.rstrip, f)))
+        else:
+            # Ensure every read name is unique.
+            mask_read_combined = set(mask_read)
+        return np.asarray(list(mask_read_combined), dtype=str)
+
+    def _filter_exclude_read(self, batch: SectionMutsBatch):
+        """ Filter out reads in the list of pre-excluded read. """
+        if self.mask_read.size == 0:
+            # Pre-exclude no reads.
+            logger.detail(f"{self} skipped pre-excluding reads in {batch}")
+            return batch
+        # Load the names of the reads in this batch.
+        names_batch = self.read_names_dataset.get_batch(batch.batch)
+        if names_batch.num_reads != batch.num_reads:
+            raise ValueError(f"Expected {batch.num_reads} read names,"
+                             f"but got {names_batch.num_reads}")
+        # Find the numbers of the reads to keep.
+        reads = batch.read_nums[np.isin(names_batch.names,
+                                        self.mask_read,
+                                        assume_unique=True,
+                                        invert=True)]
+        logger.detail(f"{self} kept {reads.size} reads after pre-excluding")
+        # Return a new batch of only those reads.
+        return apply_mask(batch, reads)
 
     def _filter_min_ncov_read(self, batch: SectionMutsBatch):
         """ Filter out reads with too few covered positions. """
@@ -268,7 +320,8 @@ class Masker(object):
         """ Filter out reads with mutations that are too close. """
         if not self.min_mut_gap >= 0:
             raise ValueError(
-                f"min_mut_gap must be ≥ 0, but got {self.min_mut_gap}")
+                f"min_mut_gap must be ≥ 0, but got {self.min_mut_gap}"
+            )
         if self.min_mut_gap == 0:
             # No read can have a pair of mutations that are too close.
             logger.detail(f"{self} skipped filtering reads with pairs of "
@@ -280,7 +333,7 @@ class Masker(object):
         return apply_mask(batch, reads)
 
     def _exclude_positions(self):
-        """ Exclude positions from the section. """
+        """ Pre-exclude positions from the section. """
         self.section.mask_polya(self.mask_polya)
         if self.mask_gu:
             self.section.mask_gu()
@@ -315,8 +368,12 @@ class Masker(object):
         batch = self.dataset.get_batch(batch_num)
         # Determine the initial number of reads in the batch.
         n_reads[self.MASK_READ_INIT] = (n := batch.num_reads)
-        # Keep only the unmasked positions.
-        batch = apply_mask(batch, section=self.section)
+        if self._iter == 1:
+            # Keep only the unmasked positions.
+            batch = apply_mask(batch, section=self.section)
+            # Remove pre-excluded reads.
+            batch = self._filter_exclude_read(batch)
+            n_reads[self.MASK_READ_LIST] = (n - (n := batch.num_reads))
         # Remove reads with too few covered positions.
         batch = self._filter_min_ncov_read(batch)
         n_reads[self.MASK_READ_NCOV] = (n - (n := batch.num_reads))
@@ -500,7 +557,7 @@ class Masker(object):
             n_pos_init=self.section.length,
             n_pos_gu=self.pos_gu.size,
             n_pos_polya=self.pos_polya.size,
-            n_pos_user=self.pos_list.size,
+            n_pos_list=self.pos_list.size,
             n_pos_min_ninfo=self.pos_min_ninfo.size,
             n_pos_max_fmut=self.pos_max_fmut.size,
             n_pos_kept=self.pos_kept.size,
@@ -515,7 +572,8 @@ class Masker(object):
             max_fmut_read=self.max_fmut_read,
             min_mut_gap=self.min_mut_gap,
             mask_discontig=self.mask_discontig,
-            n_reads_premask=self.n_reads_premask,
+            n_reads_init=self.n_reads_init,
+            n_reads_list=self.n_reads_list,
             n_reads_min_ncov=self.n_reads_min_ncov,
             n_reads_discontig=self.n_reads_discontig,
             n_reads_min_finfo=self.n_reads_min_finfo,
