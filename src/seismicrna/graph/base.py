@@ -10,7 +10,7 @@ from plotly import graph_objects as go
 from plotly.subplots import make_subplots
 
 from ..mask.table import (MaskTable,
-                          MaskPosTableLoader,
+                          MaskPositionTableLoader,
                           MaskReadTableLoader)
 from ..relate.table import (RelateTable,
                             RelatePositionTableLoader,
@@ -497,7 +497,7 @@ def load_pos_tables(input_paths: Iterable[str | Path]):
     """ Load position tables. """
     paths = list(input_paths)
     for table_type in [RelatePositionTableLoader,
-                       MaskPosTableLoader,
+                       MaskPositionTableLoader,
                        ClusterPosTableLoader,
                        DeconvolvePosTableLoader]:
         yield from table_type.load_tables(paths)

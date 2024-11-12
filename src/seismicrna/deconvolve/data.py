@@ -34,7 +34,7 @@ from ..core.report import (DeconvolveClusterMappingF,
 from ..mask.batch import MaskMutsBatch
 from ..mask.data import load_mask_dataset
 from ..mask.report import MaskReport
-from ..mask.table import MaskPosTable
+from ..mask.table import MaskPositionTable
 
 from ..core import path
 
@@ -116,7 +116,7 @@ class DeconvolveReadDataset(DeconvolveDataset, LoadedDataset):
     
     @cached_property
     def no_probe_path(self):
-        return MaskPosTable.build_path(top=self.top, 
+        return MaskPositionTable.build_path(top=self.top, 
                                      sample=self.no_probe_sample, 
                                      ref=self.ref,
                                      sect=self.sect)
@@ -127,7 +127,7 @@ class DeconvolveReadDataset(DeconvolveDataset, LoadedDataset):
     
     @cached_property
     def only_probe_path(self):
-        return MaskPosTable.build_path(top=self.top, 
+        return MaskPositionTable.build_path(top=self.top, 
                                      sample=self.only_probe_sample, 
                                      ref=self.ref,
                                      sect=self.sect)
