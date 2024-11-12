@@ -11,6 +11,7 @@ import pandas as pd
 REL_NAME = "Relationship"
 NUM_CLUSTS_NAME = "K"
 CLUST_NAME = "Cluster"
+DECONV_NAME = "Name"
 
 # Profile name prefixes
 AVERAGE_PREFIX = "average"
@@ -500,6 +501,9 @@ def parse_header(index: pd.Index | pd.MultiIndex):
                           np.unique(index.get_level_values(NUM_CLUSTS_NAME))))
         else:
             ks = None
+        if DECONV_NAME in names:
+            ks = [len(set(index.get_level_values(DECONV_NAME)))]
+            index = make_header(rels=rels, ks=ks).index
     elif index.name is None or index.name == REL_NAME:
         rels = deduplicate_rels(index.values)
         ks = None

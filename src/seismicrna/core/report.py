@@ -200,6 +200,10 @@ def iconv_dict_str_int(mapping: dict[Any, Any]) -> dict[str, int]:
     return {str(key): int(value) for key, value in mapping.items()}
 
 
+def iconv_dict_str_float(mapping: dict[Any, Any]) -> dict[str, float]:
+    return {str(key): float(value) for key, value in mapping.items()}
+
+
 def iconv_dict_str_dict_int_dict_int_int(
         mapping: dict[Any, dict[Any, dict[Any, Any]]]
 ) -> dict[str, dict[int, dict[int, int]]]:
@@ -519,8 +523,11 @@ FoldPercent = OptionField(opt_fold_percent)
 
 # Deconvolve fields
 
-DeconvolveClusterMappingF = Field("deconvolution_mapping", "Deconvolution to Cluster Mapping", dict, iconv=iconv_dict_str_int)
-DeconvolveReadCountsF = Field("deconvolve_read_counts", "Reads per Cluster", dict, iconv=iconv_dict_str_int)
+DeconvolveClusterMappingF = Field("deconvolution_mapping", "Deconvolution to cluster mapping", dict, iconv=iconv_dict_str_int)
+DeconvolveReadCountsF = Field("deconvolve_read_counts", "Reads per cluster", dict, iconv=iconv_dict_str_float)
+DeconvolveClusterCountF = Field("deconvolve_cluster_count", "Number of clusters", int)
+DeconvolveNoProbeSampleF = Field("no_probe_sample", "No probe sample", str)
+DeconvolveOnlyProbeSampleF = Field("only_probe_sample", "Only probe sample", str)
 
 # Field managing functions
 

@@ -40,12 +40,9 @@ class PartialTable(Table, ABC):
     @property
     def path_fields(self):
         return {path.TOP: self.top,
-                path.CMD: self.kind(),
                 path.SAMP: self.sample,
                 path.REF: self.ref,
-                path.SECT: self.sect,
-                path.TABLE: self.kind(),
-                path.EXT: self.ext()}
+                path.SECT: self.sect}
 
 
 class PartialPositionTable(PartialTable, PositionTable, ABC):

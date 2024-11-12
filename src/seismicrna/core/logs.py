@@ -328,6 +328,8 @@ def restore_config(func: Callable):
 
     return wrapper
 
+set_config()
+
 ########################################################################
 #                                                                      #
 # © Copyright 2024, the Rouskin Lab.                                   #

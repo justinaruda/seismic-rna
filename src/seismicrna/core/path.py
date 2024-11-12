@@ -35,6 +35,7 @@ CMD_ALIGN_DIR = "align"
 CMD_REL_DIR = "relate"
 CMD_MASK_DIR = "mask"
 CMD_CLUST_DIR = "cluster"
+CMD_DECONV_DIR = "deconvolve"
 CMD_LIST_DIR = "list"
 CMD_FOLD_DIR = "fold"
 CMD_GRAPH_DIR = "graph"
@@ -71,7 +72,7 @@ CLUST_PARAMS_DIR = "parameters"
 CLUST_STATS_DIR = "statistics"
 CLUST_COUNTS_DIR = "read-counts"
 
-TABLES = (CMD_REL_DIR, CMD_MASK_DIR, CMD_CLUST_DIR)
+TABLES = (CMD_REL_DIR, CMD_MASK_DIR, CMD_CLUST_DIR, CMD_DECONV_DIR)
 
 # File extensions
 
@@ -262,6 +263,7 @@ CmdField = Field(str, [CMD_ALIGN_DIR,
                        CMD_REL_DIR,
                        CMD_MASK_DIR,
                        CMD_CLUST_DIR,
+                       CMD_DECONV_DIR,
                        CMD_LIST_DIR,
                        CMD_FOLD_DIR,
                        CMD_GRAPH_DIR])
@@ -270,7 +272,7 @@ IntField = Field(int)
 ClustRunResultsField = Field(str, CLUST_PARAMS)
 PosTableField = Field(str, TABLES)
 ReadTableField = Field(str, TABLES)
-AbundanceField = Field(str, [CMD_CLUST_DIR])
+AbundanceField = Field(str, [CMD_CLUST_DIR, CMD_DECONV_DIR])
 
 # File extensions
 TextExt = Field(str, [TXT_EXT], is_ext=True)
@@ -488,6 +490,12 @@ ClustBatSeg = Segment("clust-bat",
                       {BATCH: IntField, EXT: BatchExt},
                       frmt="cluster-batch-{batch}{ext}")
 ClustRepSeg = Segment("clust-rep", {EXT: ReportExt}, frmt="cluster-report{ext}")
+
+# Deconvolve
+DeconvBatSeg = Segment("deconv-bat",
+                      {BATCH: IntField, EXT: BatchExt},
+                      frmt="deconvolve-batch-{batch}{ext}")
+DeconvRepSeg = Segment("deconv-rep", {EXT: ReportExt}, frmt="deconvolve-report{ext}")
 
 # Table
 PositionTableSeg = Segment("position-table",

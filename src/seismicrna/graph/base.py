@@ -9,7 +9,17 @@ from click import Argument, Option
 from plotly import graph_objects as go
 from plotly.subplots import make_subplots
 
-from ..cluster.table import ClusterPosTableLoader, ClusterAbundanceTableLoader
+from ..mask.table import (MaskTable,
+                          MaskPosTableLoader,
+                          MaskReadTableLoader)
+from ..relate.table import (RelateTable,
+                            RelatePositionTableLoader,
+                            RelateReadTableLoader)
+from ..cluster.table import (ClusterTable,
+                             ClusterPosTableLoader)
+from ..deconvolve.table import (DeconvolveTable,
+                               DeconvolvePosTableLoader)
+
 from ..core import path
 from ..core.arg import (NO_GROUP,
                         GROUP_BY_K,
@@ -30,13 +40,12 @@ from ..core.header import Header, format_clust_names
 from ..core.seq import DNA
 from ..core.table import Table, PositionTable
 from ..core.write import need_write
-from ..mask.table import MaskPosTableLoader, MaskReadTableLoader
-from ..relate.table import RelatePositionTableLoader, RelateReadTableLoader
 
 # Define actions.
 ACTION_REL = "all"
 ACTION_MASK = "masked"
 ACTION_CLUST = "clustered"
+ACTION_DECONV = "deconvolved"
 
 # String to join sample names.
 LINKER = "__and__"
@@ -44,7 +53,7 @@ LINKER = "__and__"
 
 def make_tracks(header: Header, k: int | None,
                 clust: int | None,
-                k_clust_list: list[tuple[int, int]] | None = None):
+                **kwargs):
     """ Make an index for the rows or columns of a graph. """
     if not header.clustered():
         # If there are no clusters, then no clusters must be selected.
@@ -55,8 +64,7 @@ def make_tracks(header: Header, k: int | None,
     # and then select the k(s) and cluster(s) for the index.
     return header.get_clust_header().select(k=k,
                                             clust=clust,
-                                            k_clust_list=k_clust_list
-                                            ).to_list()
+                                            **kwargs).to_list()
 
 
 def _track_count(tracks: list[tuple[int, int]] | None):
@@ -70,12 +78,14 @@ def _track_titles(tracks: list[tuple[int, int]] | None):
 
 
 def get_action_name(table: Table):
-    if isinstance(table, (RelatePositionTableLoader, RelateReadTableLoader)):
+    if isinstance(table, RelateTable):
         return ACTION_REL
-    if isinstance(table, (MaskPosTableLoader, MaskReadTableLoader)):
+    if isinstance(table, MaskTable):
         return ACTION_MASK
-    if isinstance(table, (ClusterPosTableLoader, ClusterAbundanceTableLoader)):
+    if isinstance(table, ClusterTable):
         return ACTION_CLUST
+    if isinstance(table, DeconvolveTable):
+        return ACTION_DECONV
     raise TypeError(f"Invalid table type: {type(table).__name__}")
 
 
@@ -90,6 +100,10 @@ def make_path_subject(action: str, k: int | None, clust: int | None):
                              f"be 0 or None, but got {k} and {clust}")
         return action
     if action == ACTION_CLUST:
+        return "-".join(map(str, [action,
+                                  k if k is not None else "x",
+                                  clust if clust is not None else "x"]))
+    if action == ACTION_DECONV:
         return "-".join(map(str, [action,
                                   k if k is not None else "x",
                                   clust if clust is not None else "x"]))
@@ -326,7 +340,6 @@ class GraphBase(ABC):
 
     @property
     def _subplots_params(self):
-        print(self.nrows, self.ncols, self.row_titles, self.col_titles)
         return dict(rows=self.nrows,
                     cols=self.ncols,
                     row_titles=self.row_titles,
@@ -387,7 +400,6 @@ class GraphBase(ABC):
     def write_html(self, force: bool):
         """ Write the graph to an HTML file. """
         file = self.get_path(path.HTML_EXT)
-        print(file)
         if need_write(file, force):
             self.figure.write_html(file)
         return file
@@ -486,7 +498,8 @@ def load_pos_tables(input_paths: Iterable[str | Path]):
     paths = list(input_paths)
     for table_type in [RelatePositionTableLoader,
                        MaskPosTableLoader,
-                       ClusterPosTableLoader]:
+                       ClusterPosTableLoader,
+                       DeconvolvePosTableLoader]:
         yield from table_type.load_tables(paths)
 
 

@@ -872,6 +872,22 @@ opt_cluster_abundance_table = Option(
     help="Tabulate number of reads per cluster for cluster data"
 )
 
+# Deconvolve options
+
+opt_deconvolve_pos_table = Option(
+    ("--deconvolve-pos-table/--no-deconvolve-pos-table",),
+    type=bool,
+    default=True,
+    help="Tabulate relationships per position for deconvolved data"
+)
+
+opt_deconvolve_abundance_table = Option(
+    ("--deconvolve-abundance-table/--no-deconvolve-abundance-table",),
+    type=bool,
+    default=True,
+    help="Tabulate number of reads per cluster for deconvolved data"
+)
+
 # Join options
 
 opt_joined = Option(

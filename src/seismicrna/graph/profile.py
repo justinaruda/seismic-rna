@@ -12,13 +12,14 @@ from .rel import MultiRelsGraph, OneRelGraph
 from .trace import iter_seq_base_bar_traces, iter_seqbar_stack_traces
 from ..core.header import parse_header
 from ..core.seq import POS_NAME
+from ..core.header import K_CLUST_KEY
 
 COMMAND = __name__.split(os.path.extsep)[-1]
 
 
 class ProfileGraph(OneTableGraph, ColorMapGraph, ABC):
     """ Bar graph of a mutational profile for one table. """
-
+    
     @classmethod
     def graph_kind(cls):
         return COMMAND

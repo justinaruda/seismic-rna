@@ -1,0 +1,110 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Apr 11 16:48:06 2024
+
+@author: justin
+"""
+
+from seismicrna.graph.profile import OneRelProfileGraph
+from seismicrna.graph.corroll import RollingCorrelationGraph
+import pandas as pd
+from typing import Iterable
+from collections import Counter
+from functools import cached_property
+import numpy as np
+
+def format_clust_name(k: int, 
+                      clust: int, 
+                      mapping: dict,
+                      clusters: Iterable[tuple[int, int]],
+                      allow_zero: bool = False):
+    index = np.where(clusters == (k, clust))[0][0]
+    return list(mapping.keys())[index]
+ 
+def format_clust_names(clusts: Iterable[tuple[int, int]],
+                       mapping: dict,
+                       index: Iterable[tuple[int, int]],
+                       allow_zero: bool = False,
+                       allow_duplicates: bool = False):
+    """ Format pairs of k and cluster numbers into a list of names.
+
+    Parameters
+    ----------
+    clusts: Iterable[tuple[int, int]]
+        Zero or more pairs of k and cluster numbers.
+    allow_zero: bool = False
+        Allow k and cluster to be 0.
+    allow_duplicates: bool = False
+        Allow k and cluster pairs to be duplicated.
+
+    Returns
+    -------
+    list[str]
+        List of names of the pairs of k and cluster numbers.
+
+    Raises
+    ------
+    ValueError
+        If `allow_duplicates` is False and an k-cluster pair occurs
+        more than once.
+    """
+    if not allow_duplicates:
+        counts = Counter(clusts := list(clusts))
+        if dups := [clust for clust, count in counts.items() if count > 1]:
+            raise ValueError(f"Duplicate clusters: {dups}")
+    return [format_clust_name(k, clust, mapping, index, allow_zero=allow_zero)
+            for k, clust in clusts]
+
+def _index_titles(index: pd.Index | None,
+                  mapping: dict,
+                  clusters: Iterable[tuple[int, int]]):
+        print("Using new index")
+        return (format_clust_names(index, mapping, clusters, allow_zero=True, allow_duplicates=False)
+                if index is not None
+                else None)
+
+class DeconvolvedRollingCorrelationGraph(RollingCorrelationGraph):
+    def __init__(self, section, **kwargs):
+        super().__init__(**kwargs)
+        self.table1.section = section
+        self.table2.section = section
+        
+    @cached_property
+    def data1(self):
+        """ Data from table 1. """
+        return self._fetch_data(self.table1,
+                                k=self.k1,
+                                clust=self.clust1,
+                                exclude_masked=True)
+    @cached_property
+    def data2(self):
+        """ Data from table 2. """
+        return self._fetch_data(self.table2,
+                                k=self.k2,
+                                clust=self.clust2,
+                                exclude_masked=True)
+    
+
+class OneRelDeconvolvedProfileGraph(OneRelProfileGraph):
+    """ Bar graph with one relationship per position. """
+    def __init__(self, *, mapping: dict, clusters: Iterable[tuple[int, int]], section, **kwargs):
+        self.mapping = mapping
+        self.clusters = clusters
+        self.section = section
+        super().__init__(**kwargs)
+
+    @cached_property
+    def data(self):
+        self.table.section = self.section
+        return self._fetch_data(self.table,
+                                k=self.k,
+                                clust=self.clust,
+                                exclude_masked = True,
+                                k_clust_list=self.k_clust_list)
+
+
+    @cached_property
+    def row_titles(self):
+        """ Titles of the rows. """
+        return _index_titles(self.row_index, self.mapping, self.clusters)

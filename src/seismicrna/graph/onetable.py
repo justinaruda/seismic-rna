@@ -12,6 +12,7 @@ from .base import (GraphBase,
                    make_title_action_sample)
 from ..core.table import Table, PositionTable
 from ..core.task import dispatch
+from ..core.header import K_CLUST_KEY
 
 
 class OneTableGraph(GraphBase, ABC):
@@ -19,15 +20,14 @@ class OneTableGraph(GraphBase, ABC):
 
     def __init__(self, *,
                  table: Table | PositionTable,
-                 k: int | None,
-                 clust: int | None,
-                 k_clust_list: list[tuple[int, int]] | None,
+                 k: int | None = None,
+                 clust: int | None = None,
                  **kwargs):
-        super().__init__(**kwargs)
         self.table = table
         self.k = k
         self.clust = clust
-        self.k_clust_list = k_clust_list
+        self.k_clust_list = kwargs.pop(K_CLUST_KEY, None)
+        super().__init__(**kwargs)
 
     @property
     def top(self):
@@ -59,7 +59,7 @@ class OneTableGraph(GraphBase, ABC):
         return make_tracks(self.table.header,
                            self.k,
                            self.clust,
-                           self.k_clust_list)
+                           k_clust_list=self.k_clust_list)
 
     @property
     def col_tracks(self):

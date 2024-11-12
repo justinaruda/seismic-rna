@@ -1,25 +1,30 @@
-CMD_WORKFLOW = "wf"
-CMD_DEMULT = "demult"
-CMD_ALIGN = "align"
-CMD_REL = "relate"
-CMD_POOL = "pool"
-CMD_MASK = "mask"
-CMD_CLUSTER = "cluster"
-CMD_DECONVOLVE = "deconvolve"
-CMD_JOIN = "join"
-CMD_TABLE = "table"
-CMD_FOLD = "fold"
-CMD_GRAPH = "graph"
-CMD_EXPORT = "export"
-CMD_LISTPOS = "+listpos"
-CMD_SPLITBAM = "+splitbam"
-CMD_CLEANFA = "+cleanfa"
-CMD_RENUMCT = "+renumct"
-CMD_CT2DB = "+ct2db"
-CMD_DB2CT = "+db2ct"
-CMD_SIM = "+sim"
-CMD_DATAPATH = "+datapath"
-CMD_TEST = "+test"
+from functools import cached_property
+
+import pandas as pd
+
+from ..mask.batch import PartialSectionMutsBatch, PartialReadBatch
+
+
+class DeconvolveReadBatch(PartialReadBatch):
+
+    def __init__(self, *, resps: pd.DataFrame, **kwargs):
+        self.resps = resps
+        super().__init__(**kwargs)
+
+    @cached_property
+    def num_reads(self) -> pd.Series:
+        return self.resps.sum(axis=0)
+
+    @cached_property
+    def read_nums(self):
+        return self.resps.index.values
+
+
+class DeconvolveMutsBatch(DeconvolveReadBatch, PartialSectionMutsBatch):
+
+    @property
+    def read_weights(self):
+        return self.resps
 
 ########################################################################
 #                                                                      #

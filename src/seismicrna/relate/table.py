@@ -35,11 +35,8 @@ class FullTable(Table, ABC):
     @property
     def path_fields(self):
         return {path.TOP: self.top,
-                path.CMD: self.kind(),
                 path.SAMP: self.sample,
-                path.REF: self.ref,
-                path.TABLE: self.kind(),
-                path.EXT: self.ext()}
+                path.REF: self.ref}
 
 
 class FullPositionTable(FullTable, PositionTable, ABC):
