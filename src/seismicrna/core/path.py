@@ -115,6 +115,7 @@ DBN_EXT = ".dbn"
 DOT_EXT = ".dot"
 DOT_EXTS = DB_EXT, DBN_EXT, DOT_EXT
 DMS_EXT = ".dms"
+KTS_EXT = ".kts"
 HTML_EXT = ".html"
 SVG_EXT = ".svg"
 KTS_EXT = ".kts"
@@ -298,7 +299,6 @@ GraphExt = Field(str, GRAPH_EXTS, is_ext=True)
 WebAppFileExt = Field(str, [JSON_EXT], is_ext=True)
 SvgExt = Field(str, [SVG_EXT], is_ext=True)
 KtsExt = Field(str, [KTS_EXT], is_ext=True)
-
 
 # Path Segments ########################################################
 

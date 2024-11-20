@@ -30,6 +30,16 @@ def require_env_var(dependency: str, module: str = ""):
                    "correct value before continuing.")
         raise DependencyError(message)
 
+def require_env_var(dependency: str, module: str = ""):
+    """ If a dependency does not exist, return an error message. """
+    if not environ.get(dependency):
+        by = f"by '{module}' " if module else ""
+        message = (f"The environmental variable {repr(dependency)} is "
+                   f"required {by}but was not "
+                   "found. Please set it to the "
+                   "correct value before continuing.")
+        raise DependencyError(message)
+
 ########################################################################
 #                                                                      #
 # © Copyright 2024, the Rouskin Lab.                                   #

@@ -8,7 +8,6 @@ import pandas as pd
 from click import Argument, Option
 from plotly import graph_objects as go
 from plotly.subplots import make_subplots
-
 from ..mask.table import (MaskTable,
                           MaskPositionTableLoader,
                           MaskReadTableLoader)
@@ -19,7 +18,6 @@ from ..cluster.table import (ClusterTable,
                              ClusterPositionTableLoader)
 from ..deconvolve.table import (DeconvolveTable,
                                DeconvolvePositionTableLoader)
-
 from ..core import path
 from ..core.arg import (NO_GROUP,
                         GROUP_BY_K,

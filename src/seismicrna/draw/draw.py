@@ -4,7 +4,7 @@ from functools import cached_property
 from typing import Iterable
 from pathlib import Path
 
-from ..core import path 
+from ..core import path
 from ..core.extern.shell import args_to_cmd, run_cmd, JAVA_CMD, JAR_CMD
 from ..core.task import dispatch
 from ..fold.report import FoldReport
@@ -66,11 +66,11 @@ TEMPLATE = Template(TEMPLATE_STRING)
 RNARTIST_PATH = os.environ["RNARTISTCORE"]
 
 class ColorBlock:
-    def __init__(self, 
-                 color_type: str, 
-                 color_value: str, 
-                 color_to: str = None, 
-                 color_filter: str = None, 
+    def __init__(self,
+                 color_type: str,
+                 color_value: str,
+                 color_to: str = None,
+                 color_filter: str = None,
                  location: tuple[int] = None):
         self.color_type = color_type
         self.color_value = color_value
@@ -86,15 +86,15 @@ class ColorBlock:
             'color_filter': self.color_filter,
             'location': self.location
         }
-    
+
 class JinjaData:
-    def __init__(self, 
-                 path: Path, 
-                 seq: str, 
-                 value: str, 
-                 name: str, 
-                 color_dict: dict, 
-                 details_value: int, 
+    def __init__(self,
+                 path: Path,
+                 seq: str,
+                 value: str,
+                 name: str,
+                 color_dict: dict,
+                 details_value: int,
                  color_blocks: list[ColorBlock]):
         self.path = path
         self.seq = seq
@@ -103,7 +103,7 @@ class JinjaData:
         self.color_dict = color_dict
         self.details_value = details_value
         self.color_blocks = color_blocks
-    
+
     def to_dict(self):
         return {
             'path': self.path,
@@ -139,7 +139,6 @@ def parse_db_file(file_path, struct_nums):
             if struct_num in struct_nums or -1 in struct_nums:
                 entries[struct_num] = entry
             struct_num += 1
-
     return entries
 
 def parse_color_file(file_path):
@@ -158,7 +157,6 @@ def build_jinja_data(struct: str,
                      out_dir: Path,
                      highlight_pos: Iterable[int] = None):
     color_blocks = list()
-    
     block1 = ColorBlock("N", "#caccce")
     block2 = ColorBlock("n", "black")
     block3 = ColorBlock("N", "#88CCEE", "#7287D9", {"between": (0.0, 0.2)})
@@ -171,10 +169,10 @@ def build_jinja_data(struct: str,
     block10 = ColorBlock("n", "black", "black", {"between": (0.0, 0.2)})
     block11 = ColorBlock("g", "black")
     block12 = ColorBlock("u", "black")
-    
+
     color_blocks = [block1, block2, block3, block4, block5, block6,
                     block7, block8, block9, block10, block11, block12]
-    
+
     if highlight_pos:
         for pos in highlight_pos:
             color_blocks.append(ColorBlock("N", "#00c90a",
@@ -194,7 +192,7 @@ def build_jinja_data(struct: str,
 
 class RNArtistRun(object):
 
-    def __init__(self, 
+    def __init__(self,
                  report: Path,
                  tmp_dir: Path,
                  struct_nums: Iterable[int],
@@ -208,15 +206,15 @@ class RNArtistRun(object):
     @property
     def sample(self):
         return self.fields.get(path.SAMP)
-    
+
     @property
     def ref(self):
         return self.fields.get(path.REF)
-    
+
     @property
     def sect(self):
         return self.fields.get(path.SECT)
-    
+
     @property
     def profile(self):
         return self.fields.get(path.PROFILE)
@@ -242,12 +240,12 @@ class RNArtistRun(object):
 
     def _get_dir(self, top: Path):
         """ Get the directory in which to write files of this RNA.
-    
+
         Parameters
         ----------
         top: pathlib.Path
             Top-level directory.
-    
+
         Returns
         -------
         pathlib.Path
@@ -257,7 +255,7 @@ class RNArtistRun(object):
 
     def _get_file(self, top: Path, file_seg: path.Segment, **file_fields):
         """ Get the path to a file of the RNA.
-    
+
         Parameters
         ----------
         top: pathlib.Path
@@ -266,15 +264,14 @@ class RNArtistRun(object):
             Segment of the file component of the path.
         **file_fields
             Fields for the file segment.
-    
+
         Returns
         -------
         pathlib.Path
             Path of the file.
         """
         return self._get_dir(top).joinpath(file_seg.build(**file_fields))
-    
-    
+
     def get_db_file(self, top: Path):
         """ Get the path to the dot-bracket (DB) file.
 
@@ -292,7 +289,7 @@ class RNArtistRun(object):
                               path.DotBracketSeg,
                               profile=self.profile,
                               ext=path.DOT_EXTS[0])
-    
+
     def get_svg_file(self, top: Path, struct: int):
         """ Get the path to the dot-bracket (DB) file.
 
@@ -311,7 +308,7 @@ class RNArtistRun(object):
                               profile=self.profile,
                               struct=struct,
                               ext=path.SVG_EXT)
-    
+
     def get_varna_color_file(self, top: Path):
         """ Get the path to the VARNA color file.
 
@@ -329,7 +326,7 @@ class RNArtistRun(object):
                               path.VarnaColorSeg,
                               profile=self.profile,
                               ext=path.TXT_EXT)
-    
+
     def get_script_file(self, top: Path, struct: int):
         """ Get the path to the RNArtist script (.kts) file.
 
@@ -371,10 +368,10 @@ class RNArtistRun(object):
                        keep_tmp: bool,
                        force: bool):
         if need_write(out_path, force=force):
-            jinja_data = build_jinja_data(struct=struct, 
-                                          color_dict=self.color_dict, 
+            jinja_data = build_jinja_data(struct=struct,
+                                          color_dict=self.color_dict,
                                           name=struct_name,
-                                          out_dir=out_path.parent, 
+                                          out_dir=out_path.parent,
                                           highlight_pos=self.edited_numbers)
 
             rnartist_script = TEMPLATE.render(jinja_data.to_dict())
@@ -391,7 +388,7 @@ class RNArtistRun(object):
 
     def run(self, keep_tmp: bool, force: bool):
         db_file = self.get_db_file(self.top)
-        structs = parse_db_file(db_file, struct_nums=self.struct_nums) 
+        structs = parse_db_file(db_file, struct_nums=self.struct_nums)
         args = [
                 (f"{self.profile}-{struct_num}",
                  struct,
@@ -408,7 +405,7 @@ class RNArtistRun(object):
 
 
 def draw(report_path: Path, *,
-         struct_nums: Iterable[int], 
+         struct_nums: Iterable[int],
          tmp_dir: Path,
          keep_tmp: bool,
          n_procs: int,
