@@ -26,8 +26,13 @@ from ..core.join.data import (BATCH_NUM,
                               MUTS,
                               RESPS,
                               JoinMutsDataset)
-from ..core.report import (DeconvolveClusterMappingF,
+from ..core.report import (DeconvolveMutsF,
+                           DeconvolveRefsF,
+                           DeconvolveClusterMappingF,
+                           DeconvolveMinReadsF,
                            DeconvolveReadCountsF,
+                           DeconvolveConfidenceThreshF,
+                           DeconvolveConfidenceF,
                            DeconvolveClusterCountF,
                            DeconvolveNoProbeSampleF,
                            DeconvolveOnlyProbeSampleF)
@@ -36,6 +41,7 @@ from ..mask.data import load_mask_dataset
 from ..mask.report import MaskReport
 from ..mask.table import MaskPositionTable
 
+from ..core.rel import RelPattern
 from ..core import path
 
 
@@ -86,6 +92,11 @@ class DeconvolveReadDataset(DeconvolveDataset, LoadedDataset):
         return DeconvolveBatchIO
 
     @cached_property
+    def deconv_pattern(self):
+        return RelPattern(self.report.get_field(DeconvolveMutsF),
+                          self.report.get_field(DeconvolveRefsF))
+
+    @cached_property
     def name_to_cluster(self):
         return self.report.get_field(DeconvolveClusterMappingF)
     
@@ -103,8 +114,20 @@ class DeconvolveReadDataset(DeconvolveDataset, LoadedDataset):
         return {v: k for k, v in self.name_to_cluster_index.items()}
 
     @cached_property
+    def deconv_min_reads(self):
+        return self.report.get_field(DeconvolveMinReadsF)
+
+    @cached_property
     def read_counts(self):
         return self.report.get_field(DeconvolveReadCountsF)
+
+    @cached_property
+    def conf_thresh(self):
+        return self.report.get_field(DeconvolveConfidenceThreshF)
+
+    @cached_property
+    def deconv_confs(self):
+        return self.report.get_field(DeconvolveConfidenceF)
 
     @cached_property
     def num_clusters(self):
@@ -177,6 +200,10 @@ class DeconvolveMutsDataset(DeconvolveDataset, ArrowDataset, UnbiasDataset):
         return getattr(self.data1, "quick_unbias_thresh")
 
     @property
+    def deconv_pattern(self):
+        return getattr(self.data2, "deconv_pattern")
+
+    @property
     def name_to_cluster(self):
         return getattr(self.data2, "name_to_cluster")
 
@@ -191,10 +218,22 @@ class DeconvolveMutsDataset(DeconvolveDataset, ArrowDataset, UnbiasDataset):
     @property
     def cluster_index_to_name(self):
         return getattr(self.data2, "cluster_index_to_name")
+    
+    @cached_property
+    def deconv_min_reads(self):
+        return getattr(self.data2, "deconv_min_reads")
 
     @property
     def read_counts(self):
         return getattr(self.data2, "read_counts")
+    
+    @property
+    def conf_thresh(self):
+        return getattr(self.data2, "conf_thresh")
+
+    @property
+    def deconv_confs(self):
+        return getattr(self.data2, "deconv_confs")
     
     @property
     def num_clusters(self):

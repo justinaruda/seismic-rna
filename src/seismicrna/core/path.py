@@ -98,6 +98,7 @@ FQ_EXTS = (".fq.gz",
            "_001.fastq.gz",
            "_001.fq",
            "_001.fastq")
+SVG_EXT = ".svg"
 FQ_PAIRED_EXTS_TEMPLATES = "_R{}{}", "_{}{}", "_mate{}{}", "_{}_sequence{}"
 FQ1_EXTS = tuple(template.format(1, ext) for template, ext in
                  product(FQ_PAIRED_EXTS_TEMPLATES, FQ_EXTS))
@@ -116,6 +117,7 @@ DOT_EXTS = DB_EXT, DBN_EXT, DOT_EXT
 DMS_EXT = ".dms"
 HTML_EXT = ".html"
 SVG_EXT = ".svg"
+KTS_EXT = ".kts"
 PDF_EXT = ".pdf"
 PNG_EXT = ".png"
 GRAPH_EXTS = CSV_EXT, HTML_EXT, SVG_EXT, PDF_EXT, PNG_EXT
@@ -294,6 +296,8 @@ DotBracketExt = Field(str, DOT_EXTS, is_ext=True)
 DmsReactsExt = Field(str, [DMS_EXT], is_ext=True)
 GraphExt = Field(str, GRAPH_EXTS, is_ext=True)
 WebAppFileExt = Field(str, [JSON_EXT], is_ext=True)
+SvgExt = Field(str, [SVG_EXT], is_ext=True)
+KtsExt = Field(str, [KTS_EXT], is_ext=True)
 
 
 # Path Segments ########################################################
@@ -424,6 +428,7 @@ RUN = "run"
 PROFILE = "profile"
 GRAPH = "graph"
 EXT = "ext"
+STRUCT = "struct"
 
 # Directory segments
 
@@ -521,6 +526,12 @@ DmsReactsSeg = Segment("dms-reacts",
 VarnaColorSeg = Segment("varna-color",
                         {PROFILE: NameField, EXT: TextExt},
                         frmt="{profile}__varna-color{ext}")
+
+# Draw
+SvgSeg = Segment("svg", {PROFILE: NameField, STRUCT:IntField, EXT: SvgExt},
+                 frmt="{profile}-{struct}{ext}")
+KtsSeg = Segment("kts", {PROFILE: NameField, STRUCT:IntField, EXT: KtsExt},
+                 frmt="{profile}-{struct}{ext}")
 
 # Graphs
 GraphSeg = Segment("graph", {GRAPH: NameField, EXT: GraphExt})

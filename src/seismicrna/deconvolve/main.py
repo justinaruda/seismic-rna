@@ -25,17 +25,19 @@ import itertools
 from collections import defaultdict
 from ..mask.data import MaskMutsDataset
 
-from ..graph.twotable import load_pos_tables
+from ..mask.table import (MaskTable,
+                          MaskPositionTableLoader)
+
 
 from ..core.logs import logger
 
+from .calc import calc_bayes
 
-def _calc_bayes(no_probe_table, only_probe_table, pattern: RelPattern):
-    refs = [ref for ref, muts in pattern.yes.patterns.items() if muts != 0]
-    no_probe_mus = next(no_probe_table.iter_profiles()).data
-    only_probe_mus = next(only_probe_table.iter_profiles()).data
-    bayes = 0.98 * no_probe_mus/(only_probe_mus + no_probe_mus)
-    return bayes[bayes.index.get_level_values("Base").isin(refs)]
+def load_pos_tables(input_paths: Iterable[str | Path]):
+    """ Load position tables. """
+    paths = list(input_paths)
+    for table_type in [MaskPositionTableLoader]:
+        yield from table_type.load_tables(paths)
 
 def _load_and_group_tables(paths: Iterable[str]):
     """
@@ -97,6 +99,7 @@ def run(deconv_path: tuple[str, ...],
         combinations: Iterable[int] = [1],
         conf_thresh: float,
         norm_edits: bool,
+        corr_editing_bias: bool = False,
         n_procs: int,
         strict: bool,
         deconvolve_pos_table: bool,
@@ -123,7 +126,6 @@ def run(deconv_path: tuple[str, ...],
                          only_probe_path,
                          tup_patterns,
                           tup_positions):
-        indiv_positions = tuple([position[0] for position in positions if len(position)==1])
         deconv_reports = path.find_files(deconv_elem,
         load_mask_dataset.report_path_seg_types)
         norm = no_probe_elem is not None and only_probe_elem is not None
@@ -139,6 +141,8 @@ def run(deconv_path: tuple[str, ...],
             for file in path.find_files(deconv_elem,
             load_mask_dataset.report_path_seg_types):
                 if file not in path_set:
+                    report_positions = positions
+                    report_indiv_positions = tuple([position[0] for position in positions if len(position)==1])
                     path_set.add(file)
                     if norm:
                         dataset = MaskMutsDataset(file)
@@ -146,22 +150,24 @@ def run(deconv_path: tuple[str, ...],
                         (deconvolve_table,
                          no_probe_table,
                          only_probe_table) = table_groups[ref, sect]
-                        bayes = _calc_bayes(no_probe_table,
+                        bayes = calc_bayes(no_probe_table,
                                             only_probe_table,
                                             pattern)
                         no_probe_samples.append(no_probe_table.sample)
                         only_probe_samples.append(only_probe_table.sample)
                         confidences.append(bayes)
                         conf_positions = bayes[bayes >= conf_thresh].index.get_level_values("Position").values
-                        indiv_positions += tuple(conf_positions)
+                        report_indiv_positions += tuple(conf_positions)
                         logger.detail(f"Confident of positions {conf_positions} "
                                       f"for reference: {ref} section: {sect}")
+                    for position in report_indiv_positions:
+                        report_positions += ((position,),)
                     report_files.append(file)
                     for combination in combinations:
-                        positions += tuple([group for group 
+                        report_positions += (tuple([group for group 
                                             in itertools.combinations(
-                                                indiv_positions, combination)])
-                    all_positions.append(tuple(sorted(set(positions))))
+                                                report_indiv_positions, combination)]))
+                    all_positions.append(tuple(sorted(set(report_positions), key=lambda x: (len(x), x))))
                     all_patterns.append(pattern)
 
     arguments = [arg for arg in itertools.zip_longest(report_files,
@@ -176,8 +182,10 @@ def run(deconv_path: tuple[str, ...],
                     pass_n_procs=True,
                     args=arguments,
                     kwargs=dict(deconvolve_pos_table=deconvolve_pos_table,
+                                conf_thresh=conf_thresh,
                                 deconvolve_abundance_table=deconvolve_abundance_table,
                                 norm_edits=norm_edits,
+                                corr_editing_bias=corr_editing_bias,
                                 strict=strict,
                                 brotli_level=brotli_level,
                                 force=force,

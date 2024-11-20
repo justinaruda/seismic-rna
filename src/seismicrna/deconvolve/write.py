@@ -25,7 +25,7 @@ from ..mask.report import MaskReport
 
 SEED_DTYPE = np.uint32
 
-from .table import DeconvolvePosTable
+from .table import DeconvolvePositionTable
 
 def deconvolve(mask_report_file: Path,
             positions: Iterable[Iterable[int]],
@@ -34,6 +34,8 @@ def deconvolve(mask_report_file: Path,
             no_probe_sample: str,
             only_probe_sample: str,
             *,
+            corr_editing_bias: bool = False,
+            conf_thresh: bool,
             tmp_dir: Path,
             n_procs: int,
             brotli_level: int,
@@ -49,26 +51,10 @@ def deconvolve(mask_report_file: Path,
                                            MaskReport,
                                            DeconvolveReport)
 
-    # print(path.build(DeconvolvePosTable.path_segs()))
     if need_write(deconvolve_report_file, force):
         began = datetime.now()
         # Load the unique reads.
         dataset = load_mask_dataset(mask_report_file)
-        if no_probe_sample is not None and only_probe_sample is not None:
-            # no_probe_report_file = recast_file_path(mask_report_file,
-            #                                         MaskReport,
-            #                                         MaskReport, 
-            #                                         sample=no_probe_sample)
-            # no_probe_dataset = load_mask_dataset(no_probe_report_file)
-            # only_probe_report_file = recast_file_path(mask_report_file,
-            #                                         MaskReport,
-            #                                         MaskReport, 
-            #                                         sample=only_probe_sample)
-            # only_probe_dataset = load_mask_dataset(only_probe_report_file)
-            pass
-        else:
-            no_probe_dataset = None
-            only_probe_dataset = None
         deconv_run = DeconvRun(dataset=dataset,
                                positions=positions,
                                pattern=pattern,
@@ -81,9 +67,17 @@ def deconvolve(mask_report_file: Path,
         batch_writer.write_batches()
         # Write the deconvolve report.
         ended = datetime.now()
+        pos_strings = [f"edited_{'_'.join(str(pos) for pos in position)}" for position in positions]
+        pos_confs = [
+            confidences.loc[pos].iloc[0] if len(pos) == 1 else
+            confidences.loc[list(pos)].prod()
+            for pos in positions]
+        deconv_confs = {pos_string: confidence for pos_string, confidence in zip(pos_strings, pos_confs)}
         report = DeconvolveReport.from_deconv_run(deconv_run,
                                                   began=began,
                                                   ended=ended,
+                                                  conf_thresh=conf_thresh,
+                                                  deconv_confs=deconv_confs,
                                                   no_probe_sample=no_probe_sample,
                                                   only_probe_sample=only_probe_sample,
                                                   checksums=batch_writer.checksums)
@@ -94,6 +88,9 @@ def deconvolve(mask_report_file: Path,
         dataset=DeconvolveMutsDataset(deconvolve_report_file),
         count_pos=deconvolve_pos_table,
         count_read=False,
+        positions_list=positions,
+        confidences_list = confidences,
+        corr_editing_bias = corr_editing_bias,
         max_procs=n_procs,
     ).write_tables(pos=deconvolve_pos_table, clust=deconvolve_abundance_table)
     return deconvolve_report_file.parent

@@ -16,9 +16,9 @@ from ..relate.table import (RelateTable,
                             RelatePositionTableLoader,
                             RelateReadTableLoader)
 from ..cluster.table import (ClusterTable,
-                             ClusterPosTableLoader)
+                             ClusterPositionTableLoader)
 from ..deconvolve.table import (DeconvolveTable,
-                               DeconvolvePosTableLoader)
+                               DeconvolvePositionTableLoader)
 
 from ..core import path
 from ..core.arg import (NO_GROUP,
@@ -498,8 +498,8 @@ def load_pos_tables(input_paths: Iterable[str | Path]):
     paths = list(input_paths)
     for table_type in [RelatePositionTableLoader,
                        MaskPositionTableLoader,
-                       ClusterPosTableLoader,
-                       DeconvolvePosTableLoader]:
+                       ClusterPositionTableLoader,
+                       DeconvolvePositionTableLoader]:
         yield from table_type.load_tables(paths)
 
 

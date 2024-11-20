@@ -450,7 +450,7 @@ NumReadsInitF = Field("n_reads_init",
                       int)
 NumReadCutListF = Field("n_reads_list",
                         "Number of reads masked from a list",
-                        int)
+                        int, 0)
 NumReadsLoNCovF = Field("n_reads_min_ncov",
                         "Number of reads with too few bases covering the "
                         "section",
@@ -526,11 +526,33 @@ FoldPercent = OptionField(opt_fold_percent)
 
 # Deconvolve fields
 
-DeconvolveClusterMappingF = Field("deconvolution_mapping", "Deconvolution to cluster mapping", dict, iconv=iconv_dict_str_int)
-DeconvolveReadCountsF = Field("deconvolve_read_counts", "Reads per cluster", dict, iconv=iconv_dict_str_float)
-DeconvolveClusterCountF = Field("deconvolve_cluster_count", "Number of clusters", int)
+DeconvolveMutsF = Field("mut_pattern",
+                        "Relationships to cluster on",
+                        HalfRelPattern,
+                        iconv=HalfRelPattern.from_report_format,
+                        oconv=HalfRelPattern.to_report_format)
+DeconvolveRefsF = Field("ref_pattern",
+                        "Relationships to count as matches",
+                        HalfRelPattern,
+                        iconv=HalfRelPattern.from_report_format,
+                        oconv=HalfRelPattern.to_report_format)
+DeconvolveClusterMappingF = Field("deconvolution_mapping",
+                                  "Deconvolution to cluster mapping",
+                                  dict, iconv=iconv_dict_str_int)
+DeconvolveMinReadsF = Field("deconv_min_reads",
+                                "Minimum reads per cluster", int)
+DeconvolveReadCountsF = Field("deconvolve_read_counts",
+                              "Reads per cluster",
+                              dict, iconv=iconv_dict_str_float)
+DeconvolveConfidenceThreshF = Field("conf_thresh",
+                                "Automatically deconvolve positions above this confidence", float)
+DeconvolveConfidenceF = Field("deconv_confs",
+                                "Confidence by deconvolved position", dict, iconv=iconv_dict_str_float)
+DeconvolveClusterCountF = Field("deconvolve_cluster_count",
+                                "Number of clusters", int)
 DeconvolveNoProbeSampleF = Field("no_probe_sample", "No probe sample", str)
-DeconvolveOnlyProbeSampleF = Field("only_probe_sample", "Only probe sample", str)
+DeconvolveOnlyProbeSampleF = Field("only_probe_sample",
+                                   "Only probe sample", str)
 
 # Field managing functions
 

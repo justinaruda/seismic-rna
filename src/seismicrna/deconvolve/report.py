@@ -8,9 +8,14 @@ from ..core.report import (Field,
                            SampleF,
                            RefF,
                            SectF,
+                           DeconvolveMutsF,
+                           DeconvolveRefsF,
                            DeconvolveClusterMappingF,
+                           DeconvolveMinReadsF,
                            DeconvolveReadCountsF,
                            DeconvolveClusterCountF,
+                           DeconvolveConfidenceThreshF,
+                           DeconvolveConfidenceF,
                            DeconvolveNoProbeSampleF,
                            DeconvolveOnlyProbeSampleF)
 
@@ -32,9 +37,14 @@ class DeconvolveReport(BatchedReport, DeconvolveIO):
             RefF,
             SectF,
             # Clustering parameters.
+            DeconvolveMutsF,
+            DeconvolveRefsF,
             DeconvolveClusterMappingF,
+            DeconvolveMinReadsF,
             DeconvolveReadCountsF,
             DeconvolveClusterCountF,
+            DeconvolveConfidenceThreshF,
+            DeconvolveConfidenceF,
             DeconvolveNoProbeSampleF,
             DeconvolveOnlyProbeSampleF,
         ] + super().fields()
@@ -44,7 +54,9 @@ class DeconvolveReport(BatchedReport, DeconvolveIO):
         return {**super().auto_fields(), path.CMD: path.CMD_DECONV_DIR}
     
     @classmethod
-    def from_deconv_run(cls, deconv_run, 
+    def from_deconv_run(cls, deconv_run,
+                        conf_thresh: float,
+                        deconv_confs: dict[str,float],
                         no_probe_sample: str,
                         only_probe_sample: str,
                         began: datetime, 
@@ -56,6 +68,11 @@ class DeconvolveReport(BatchedReport, DeconvolveIO):
                    ref=deconv_run.dataset.ref,
                    sect=deconv_run.dataset.sect,
                    n_batches=deconv_run.dataset.num_batches,
+                   mut_pattern=deconv_run.pattern.yes,
+                   ref_pattern=deconv_run.pattern.nos,
+                   conf_thresh=conf_thresh,
+                   deconv_confs=deconv_confs,
+                   deconv_min_reads=deconv_run.min_reads,
                    no_probe_sample=no_probe_sample,
                    only_probe_sample=only_probe_sample,
                    checksums={DeconvolveBatchIO.btype(): checksums},

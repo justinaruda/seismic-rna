@@ -1,8 +1,10 @@
+from os.path import exists
 from ..core.logs import logger
 from seismicrna.core.header import K_CLUST_KEY
 from seismicrna.graph.profile import OneRelProfileGraph
 from seismicrna.graph.corroll import RollingCorrelationGraph
-from seismicrna.deconvolve.table import DeconvolvePosTable
+from seismicrna.deconvolve.table import DeconvolvePositionTable
+from seismicrna.deconvolve.data import DeconvolveMutsDataset
 import pandas as pd
 from typing import Iterable
 from collections import Counter
@@ -54,7 +56,6 @@ def format_clust_names(clusts: Iterable[tuple[int, int]],
 def _index_titles(index: pd.Index | None,
                   mapping: dict,
                   clusters: Iterable[tuple[int, int]]):
-        print("Using new index")
         return (format_clust_names(index, mapping, clusters, allow_zero=True, allow_duplicates=False)
                 if index is not None
                 else None)
@@ -72,9 +73,17 @@ class DeconvolvedGraph:
         if hasattr(self, "table"):
             return
         if (table := kwargs.get("table")) or (table := kwargs.get("table1")):
-            self.cluster_index_to_name = table.tabulator.dataset.cluster_index_to_name
-            self.name_to_cluster_index = table.tabulator.dataset.name_to_cluster_index
-            self.read_counts = table.tabulator.num_reads
+            if not hasattr(table, "tabulator"):
+                if exists(table.report_path):
+                    dataset = DeconvolveMutsDataset(table.report_path)
+                else:
+                    logger.error(f"No deconvolve report found for {table.ref} {table.sect}.")
+            else:
+                dataset = table.tabulator.dataset
+            self.cluster_index_to_name = dataset.cluster_index_to_name
+            self.name_to_cluster_index = dataset.name_to_cluster_index
+            self.deconv_confs = dataset.deconv_confs
+            self.read_counts = dataset.read_counts
             self.table = table
         else:
             logger.error("DeconvolvedGraph missing keyword argument table")
@@ -117,15 +126,29 @@ class DeconvolvedRollingCorrelationGraph(RollingCorrelationGraph):
     def row_titles(self):
         """ Titles of the rows. """
         name_list = list(map(self.cluster_index_to_name.get, self.row_tracks))
-        read_counts = [int(self.read_counts.get(clust, 0.0)) for clust in self.row_tracks]
-        return [f"{name}<br><sub>{reads:,} reads</sub>" for name, reads in zip(name_list, read_counts)]
+        read_counts = [int(self.read_counts.get(name, 0.0)) for name in name_list]
+        conf_list = list(map(self.deconv_confs.get, name_list))
+        labels = list()
+        for name, reads, conf in zip(name_list, read_counts, conf_list):
+            if conf:
+                labels.append(f"{name} ({conf*100:.2f}% confident)<br><sub>{reads:,} reads</sub>")
+            else:
+                labels.append(f"{name}<br><sub>{reads:,} reads</sub>")
+        return labels
 
     @cached_property
     def col_titles(self):
         """ Titles of the columns. """
         name_list = list(map(self.cluster_index_to_name.get, self.col_tracks))
-        read_counts = [int(self.read_counts.get(clust, 0.0)) for clust in self.col_tracks]
-        return [f"{name}<br><sub>{reads:,} reads</sub>" for name, reads in zip(name_list, read_counts)]
+        read_counts = [int(self.read_counts.get(name, 0.0)) for name in name_list]
+        conf_list = list(map(self.deconv_confs.get, name_list))
+        labels = list()
+        for name, reads, conf in zip(name_list, read_counts, conf_list):
+            if conf:
+                labels.append(f"{name} ({conf*100:.2f}% confident)<br><sub>{reads:,} reads</sub>")
+            else:
+                labels.append(f"{name}<br><sub>{reads:,} reads</sub>")
+        return labels
     
 
 class OneRelDeconvolvedProfileGraph(OneRelProfileGraph):
@@ -143,6 +166,13 @@ class OneRelDeconvolvedProfileGraph(OneRelProfileGraph):
     def row_titles(self):
         """ Titles of the rows. """
         name_list = list(map(self.cluster_index_to_name.get, self.row_tracks))
-        read_counts = [int(self.read_counts.get(clust, 0.0)) for clust in self.row_tracks]
-        return [f"{name}<br><sub>{reads:,} reads</sub>" for name, reads in zip(name_list, read_counts)]
+        read_counts = [int(self.read_counts.get(name, 0.0)) for name in name_list]
+        conf_list = list(map(self.deconv_confs.get, name_list))
+        labels = list()
+        for name, reads, conf in zip(name_list, read_counts, conf_list):
+            if conf:
+                labels.append(f"{name}<br><sub>{conf*100:.2f}% confident<br>{reads:,} reads</sub>")
+            else:
+                labels.append(f"{name}<br><sub>{reads:,} reads</sub>")
+        return labels
         

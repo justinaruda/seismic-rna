@@ -41,7 +41,7 @@ class DeconvRun(object):
                  dataset: MaskMutsDataset,
                  positions: Iterable[Iterable[int]],
                  pattern: RelPattern,
-                 min_reads=1000,
+                 min_reads=100,
                  strict=False,
                  norm_edits=True):
         """
@@ -57,6 +57,7 @@ class DeconvRun(object):
         self.norm_edits = norm_edits
         self._resps = dict()
         # Run deconvolution
+        logger.warning(f"Deconvolving {self.dataset.ref} at positions {self.positions}")
         self._run()
 
     @cached_property
@@ -227,10 +228,8 @@ class DeconvRun(object):
         if cluster == 1:
             resps.iloc[:,0] = np.array([1]*batch.num_reads)        
         resps_matrix = np.zeros((batch.num_reads, 2), dtype=int)
-        if not (len(self.edited) < self.min_reads 
-                or len(self.unedited) < self.min_reads):
-            resps_matrix[batch.read_indexes[self.edited], 0] = 1
-            resps_matrix[batch.read_indexes[self.unedited], 1] = 1      
+        resps_matrix[batch.read_indexes[self.edited], 0] = 1
+        resps_matrix[batch.read_indexes[self.unedited], 1] = 1   
         resps.loc[:,resps.columns[cluster]] = resps_matrix[:, 0]
         resps.loc[:,resps.columns[cluster+1]] = resps_matrix[:, 1]
         return resps
@@ -253,6 +252,12 @@ class DeconvRun(object):
     def _run(self):
         for batch_num in range(self.dataset.num_batches):
             self._resps[batch_num] = self._calc_resps(batch_num)
+        read_counts = np.zeros(self.num_clusters, dtype=int)
+        for resp_df in self._resps.values():
+            read_counts += resp_df.sum()
+        mask = read_counts < self.min_reads
+        for resp_df in self._resps.values():
+            resp_df.loc[:, mask] = 0
         
     
     def get_resps(self, batch_num):

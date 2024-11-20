@@ -16,6 +16,7 @@ DECONV_NAME = "Name"
 # Profile name prefixes
 AVERAGE_PREFIX = "average"
 CLUSTER_PREFIX = "cluster"
+DECONVOLVE_PREFIX = "deconvolve"
 
 # Header selection keys
 K_CLUST_KEY = "k_clust_list"

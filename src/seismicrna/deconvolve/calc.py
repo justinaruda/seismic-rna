@@ -1,26 +1,14 @@
-CMD_WORKFLOW = "wf"
-CMD_DEMULT = "demult"
-CMD_ALIGN = "align"
-CMD_REL = "relate"
-CMD_POOL = "pool"
-CMD_MASK = "mask"
-CMD_CLUSTER = "cluster"
-CMD_DECONVOLVE = "deconvolve"
-CMD_JOIN = "join"
-CMD_TABLE = "table"
-CMD_FOLD = "fold"
-CMD_GRAPH = "graph"
-CMD_EXPORT = "export"
-CMD_LISTPOS = "+listpos"
-CMD_SPLITBAM = "+splitbam"
-CMD_CLEANFA = "+cleanfa"
-CMD_RENUMCT = "+renumct"
-CMD_CT2DB = "+ct2db"
-CMD_DB2CT = "+db2ct"
-CMD_DRAW = "+draw"
-CMD_SIM = "+sim"
-CMD_DATAPATH = "+datapath"
-CMD_TEST = "+test"
+from ..core.rel import RelPattern
+from ..mask.table import MaskPositionTable
+
+def calc_bayes(no_probe_table: MaskPositionTable,
+               only_probe_table: MaskPositionTable,
+               pattern: RelPattern):
+    refs = [ref for ref, muts in pattern.yes.patterns.items() if muts != 0]
+    no_probe_mus = next(no_probe_table.iter_profiles()).data
+    only_probe_mus = next(only_probe_table.iter_profiles()).data
+    bayes = 0.98 * no_probe_mus/(only_probe_mus + no_probe_mus)
+    return bayes[bayes.index.get_level_values("Base").isin(refs)]
 
 ########################################################################
 #                                                                      #
