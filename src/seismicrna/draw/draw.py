@@ -16,11 +16,8 @@ from ..fold.report import FoldReport
 from ..relate.table import RelatePositionTable, RelatePositionTableLoader
 from ..mask.table import MaskPositionTable, MaskPositionTableLoader
 from ..cluster.table import ClusterPositionTable, ClusterPositionTableLoader
-<<<<<<< HEAD
 from ..deconvolve.table import (DeconvolvePositionTable,
                                 DeconvolvePositionTableLoader)
-=======
->>>>>>> upstream/0.22.0
 
 from jinja2 import Template
 
@@ -210,10 +207,7 @@ class RNArtistRun(object):
         self.struct_nums = struct_nums
         self.color = color
         self.n_procs = n_procs
-<<<<<<< HEAD
-=======
         self._parse_profile()
->>>>>>> upstream/0.22.0
 
     def _get_dir_fields(self, top: Path):
         """ Get the path fields for the directory of this RNA.
