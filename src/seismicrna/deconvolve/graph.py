@@ -1,7 +1,7 @@
 from os.path import exists
 from ..core.logs import logger
 from seismicrna.core.header import K_CLUST_KEY
-from seismicrna.graph.profile import OneRelProfileGraph
+from seismicrna.graph.profile import OneRelProfileGraph, MultiRelsProfileGraph
 from seismicrna.graph.corroll import RollingCorrelationGraph
 from seismicrna.deconvolve.table import DeconvolvePositionTable
 from seismicrna.deconvolve.data import DeconvolveMutsDataset
@@ -152,6 +152,31 @@ class DeconvolvedRollingCorrelationGraph(RollingCorrelationGraph):
     
 
 class OneRelDeconvolvedProfileGraph(OneRelProfileGraph):
+    """ Bar graph with one relationship per position. """
+    def __init__(self, **kwargs):
+        DeconvolvedGraph.__init__(self, **kwargs)
+        names = kwargs.pop("names", None)
+        if names:
+            mapped_indexes = map_names(names, self.name_to_cluster_index)
+            if mapped_indexes:
+                kwargs[K_CLUST_KEY] = mapped_indexes
+        super().__init__(**kwargs)
+
+    @cached_property
+    def row_titles(self):
+        """ Titles of the rows. """
+        name_list = list(map(self.cluster_index_to_name.get, self.row_tracks))
+        read_counts = [int(self.read_counts.get(name, 0.0)) for name in name_list]
+        conf_list = list(map(self.deconv_confs.get, name_list))
+        labels = list()
+        for name, reads, conf in zip(name_list, read_counts, conf_list):
+            if conf:
+                labels.append(f"{name}<br><sub>{conf*100:.2f}% confident<br>{reads:,} reads</sub>")
+            else:
+                labels.append(f"{name}<br><sub>{reads:,} reads</sub>")
+        return labels
+
+class MultiRelsDeconvolvedProfileGraph(MultiRelsProfileGraph):
     """ Bar graph with one relationship per position. """
     def __init__(self, **kwargs):
         DeconvolvedGraph.__init__(self, **kwargs)

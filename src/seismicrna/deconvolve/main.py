@@ -149,7 +149,9 @@ def run(deconv_path: tuple[str, ...],
                         ref, sect = dataset.ref, dataset.section.name
                         (deconvolve_table,
                          no_probe_table,
-                         only_probe_table) = table_groups[ref, sect]
+                         only_probe_table) = table_groups.get((ref, sect), (None, None, None))
+                        if not deconvolve_table or not no_probe_table or not only_probe_table:
+                            continue
                         bayes = calc_bayes(no_probe_table,
                                             only_probe_table,
                                             pattern)
