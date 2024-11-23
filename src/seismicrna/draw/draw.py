@@ -16,6 +16,8 @@ from ..fold.report import FoldReport
 from ..relate.table import RelatePositionTable, RelatePositionTableLoader
 from ..mask.table import MaskPositionTable, MaskPositionTableLoader
 from ..cluster.table import ClusterPositionTable, ClusterPositionTableLoader
+from ..deconvolve.table import (DeconvolvePositionTable,
+                                DeconvolvePositionTableLoader)
 
 from jinja2 import Template
 
@@ -79,7 +81,9 @@ TABLES = {path.CMD_REL_DIR:(RelatePositionTable,
           path.CMD_MASK_DIR:(MaskPositionTable,
                              MaskPositionTableLoader),
           path.CMD_CLUST_DIR:(ClusterPositionTable,
-                              ClusterPositionTableLoader)}
+                              ClusterPositionTableLoader),
+          path.CMD_DECONV_DIR:(DeconvolvePositionTable,
+                               DeconvolvePositionTableLoader)}
 
 class ColorBlock:
     def __init__(self,
