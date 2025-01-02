@@ -39,7 +39,11 @@ from .calc import calc_bayes
 
 
 class DeconvolveTable(RelTypeTable, ABC):
-    
+
+    # def __init_subclass__(cls, **kwargs):
+    #     super().__init_subclass__(**kwargs)
+    #     cls.min_denom = 1000 #HARDCODED
+
     @classmethod
     def kind(cls):
         return path.CMD_DECONV_DIR
@@ -95,6 +99,7 @@ class DeconvolvePositionTable(DeconvolveTable, PartialPositionTable, ABC):
                        k: int | None,
                        clust: int | None):
         """ Yield RNA mutational profiles from a table. """
+        print("Iterating")
         if sections is not None:
             sections = list(sections)
         else:

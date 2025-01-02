@@ -201,6 +201,17 @@ class Table(ABC):
 class RelTypeTable(Table, ABC):
     """ Table with multiple types of relationships. """
 
+    def __init__(self):
+        self._min_denom = None
+
+    @property
+    def min_denom(self):
+        return self._min_denom
+
+    @min_denom.setter
+    def min_denom(self, value):
+        self._min_denom = value
+
     @classmethod
     def header_rows(cls) -> list[int]:
         """ Row(s) of the file to use as the columns. """
@@ -259,6 +270,12 @@ class RelTypeTable(Table, ABC):
         numer = self._fetch_data(self.header.select(**kwargs), exclude_masked)
         # Fetch the data for the denominator.
         denom = self._fetch_data(_get_denom_cols(numer.columns), exclude_masked)
+        # Do not compute the ratio where the denominator is < min_denom.
+        if self.min_denom is not None:
+            covered = denom >= self.min_denom
+            denom = denom[covered]
+            covered.columns = numer.columns
+            numer = numer[covered]
         # Compute the ratio of the numerator and the denominator.
         return self._format_data(winsorize(numer / denom.values, quantile),
                                  precision=precision,

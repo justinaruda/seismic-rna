@@ -105,6 +105,7 @@ def fold_profile(table: MaskPositionTableLoader | ClusterPositionTableLoader | D
                  n_procs: int,
                  **kwargs):
     """ Fold an RNA molecule from one table of reactivities. """
+    table.min_denom = 1000 #HARDCODED
     return dispatch(fold_section,
                     n_procs,
                     pass_n_procs=True,

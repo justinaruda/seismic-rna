@@ -87,7 +87,7 @@ class DeconvolvedGraph:
             self.table = table
         else:
             logger.error("DeconvolvedGraph missing keyword argument table")
-            
+
 
 
 class DeconvolvedRollingCorrelationGraph(RollingCorrelationGraph):
@@ -176,6 +176,13 @@ class OneRelDeconvolvedProfileGraph(OneRelProfileGraph):
                 labels.append(f"{name}<br><sub>{reads:,} reads</sub>")
         return labels
 
+    @cached_property
+    def data(self):
+        return self._fetch_data(self.table,
+                                k=self.k,
+                                clust=self.clust,
+                                k_clust_list=self.k_clust_list)
+
 class MultiRelsDeconvolvedProfileGraph(MultiRelsProfileGraph):
     """ Bar graph with one relationship per position. """
     def __init__(self, **kwargs):
@@ -200,4 +207,3 @@ class MultiRelsDeconvolvedProfileGraph(MultiRelsProfileGraph):
             else:
                 labels.append(f"{name}<br><sub>{reads:,} reads</sub>")
         return labels
-        

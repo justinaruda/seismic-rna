@@ -144,6 +144,7 @@ class TableLoader(Table, ABC):
                 logger.error(error)
 
     def __init__(self, table_file: Path):
+        super().__init__()
         fields = path.parse(table_file, *self.path_segs())
         self._out_dir = fields[path.TOP]
         self._sample = fields[path.SAMP]

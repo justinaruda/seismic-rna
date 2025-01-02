@@ -288,8 +288,11 @@ class RNArtistRun(object):
                 if self.table_class else None)
     @cached_property
     def table(self):
-        return (self.table_loader(self.table_file)
+        table = (self.table_loader(self.table_file)
                 if self.table_loader else None)
+        if table is not None:
+            table.min_denom = 1000 #HARDCODED
+        return table
 
     def get_ct_file(self, top: Path):
         """ Get the path to the connectivity table (CT) file.
