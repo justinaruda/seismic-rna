@@ -7,8 +7,9 @@ import pandas as pd
 from click import command
 from plotly import graph_objects as go
 
-from .base import Annotation, GraphWriter, PosGraphRunner
 from .color import ColorMapGraph, SeqColorMap
+from .base import Annotation
+from .table import TableGraphWriter, PosGraphRunner
 from .trace import iter_seq_base_scatter_traces
 from .twotable import SAMPLE_NAME, TwoTableGraph, TwoTableRunner, TwoTableWriter
 from ..core.arg import opt_metric
@@ -95,7 +96,7 @@ class ScatterPlotGraph(TwoTableGraph, ColorMapGraph):
         fig.update_yaxes(gridcolor="#d0d0d0")
 
 
-class ScatterPlotWriter(TwoTableWriter, GraphWriter):
+class ScatterPlotWriter(TwoTableWriter, TableGraphWriter):
 
     @classmethod
     def get_graph_type(cls):
@@ -120,7 +121,7 @@ def cli(*args, **kwargs):
 
 ########################################################################
 #                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
 #                                                                      #
 # This file is part of SEISMIC-RNA.                                    #
 #                                                                      #

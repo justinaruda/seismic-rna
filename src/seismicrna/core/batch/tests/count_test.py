@@ -13,7 +13,7 @@ from seismicrna.core.batch.count import (calc_coverage,
                                          calc_count_per_read)
 from seismicrna.core.batch.ends import END5_COORD, END3_COORD
 from seismicrna.core.rel import HalfRelPattern, RelPattern
-from seismicrna.core.seq.section import SEQ_INDEX_NAMES, seq_pos_to_index
+from seismicrna.core.seq.region import SEQ_INDEX_NAMES, seq_pos_to_index
 from seismicrna.core.seq.xna import DNA
 
 rng = np.random.default_rng(0)
@@ -1210,7 +1210,7 @@ if __name__ == "__main__":
 
 ########################################################################
 #                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
 #                                                                      #
 # This file is part of SEISMIC-RNA.                                    #
 #                                                                      #

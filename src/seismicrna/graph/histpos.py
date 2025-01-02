@@ -2,7 +2,7 @@ import os
 
 from click import command
 
-from .base import GraphWriter, PosGraphRunner
+from .table import TableGraphWriter, PosGraphRunner
 from .histrel import RelHistogramGraph, RelHistogramWriter, RelHistogramRunner
 
 COMMAND = __name__.split(os.path.extsep)[-1]
@@ -23,7 +23,7 @@ class PosHistogramGraph(RelHistogramGraph):
         return "Number of positions"
 
 
-class PosHistogramWriter(RelHistogramWriter, GraphWriter):
+class PosHistogramWriter(RelHistogramWriter, TableGraphWriter):
 
     @classmethod
     def get_graph_type(cls):
@@ -44,7 +44,7 @@ def cli(*args, **kwargs):
 
 ########################################################################
 #                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
 #                                                                      #
 # This file is part of SEISMIC-RNA.                                    #
 #                                                                      #

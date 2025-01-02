@@ -87,7 +87,7 @@ class Task(object):
         except Exception as error:
             logger.error(error)
         else:
-            logger.task(f"Ended task {task}:\n{result}\n")
+            logger.task(f"Ended task {task}\n")
             return result
         finally:
             if close_file_stream and logger.file_stream is not None:
@@ -226,7 +226,7 @@ def as_list_of_tuples(args: Iterable[Any]):
 
 ########################################################################
 #                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
 #                                                                      #
 # This file is part of SEISMIC-RNA.                                    #
 #                                                                      #

@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 from plotly import graph_objects as go
 
@@ -187,9 +188,32 @@ def iter_line_traces(lines: pd.DataFrame):
     for cluster, line in lines.items():
         yield get_line_trace(line, str(cluster))
 
+
+def get_pairwise_position_trace(data: pd.Series, end5: int, end3: int):
+    # The data must be a long-form Series with a two-level MultiIndex.
+    # Convert the data to wide-form and make them symmetric.
+    if not isinstance(data, pd.Series):
+        raise TypeError("data must be a Series, "
+                        f"but got {type(data).__name__}")
+    if not isinstance(data.index, pd.MultiIndex):
+        raise TypeError("data.index must be a MultiIndex, "
+                        f"but got {type(data.index).__name__}")
+    if data.index.nlevels != 2:
+        raise ValueError("data.index must have 2 levels, "
+                         f"but got {data.index.nlevels}")
+    matrix_index = pd.RangeIndex(end5, end3 + 1)
+    matrix = pd.DataFrame(np.nan, matrix_index, matrix_index)
+    for (pos_x, pos_y), value in data.items():
+        matrix.loc[(pos_x, pos_y)] = value
+        matrix.loc[(pos_y, pos_x)] = value
+    return go.Heatmap(x=matrix_index,
+                      y=matrix_index,
+                      z=matrix,
+                      hoverongaps=False)
+
 ########################################################################
 #                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
 #                                                                      #
 # This file is part of SEISMIC-RNA.                                    #
 #                                                                      #

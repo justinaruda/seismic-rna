@@ -17,14 +17,14 @@ from ..core.extern import require_env_var
 
 @run_func(CMD_DRAW, with_tmp=True, pass_keep_tmp=True)
 def run(input_path: tuple[str, ...], *,
-        struct_num: Iterable[int] | None,
+        struct_num: Iterable[int],
         color: bool,
         force: bool,
         max_procs: int,
         tmp_dir: Path,
         keep_tmp: bool) -> list[Path]:
     """ Draw RNA structure diagrams with reactivities using RNArtistCore. """
-    require_env_var("RNARTISTCORE", "+draw")
+    require_env_var("RNARTISTCORE", CMD_DRAW)
     # Generate the positional arguments for draw.
     args = as_list_of_tuples(path.find_files_chain(input_path, [path.FoldRepSeg]))
     # Draw the files.
@@ -32,7 +32,7 @@ def run(input_path: tuple[str, ...], *,
                     max_procs,
                     args=args,
                     pass_n_procs=True,
-                    kwargs=dict(struct_nums=struct_num,
+                    kwargs=dict(struct_num=struct_num,
                                 color=color,
                                 tmp_dir=tmp_dir,
                                 keep_tmp=keep_tmp,
@@ -56,7 +56,7 @@ def cli(*args, **kwargs):
 
 ########################################################################
 #                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
 #                                                                      #
 # This file is part of SEISMIC-RNA.                                    #
 #                                                                      #

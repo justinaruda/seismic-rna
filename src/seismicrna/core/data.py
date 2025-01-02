@@ -5,25 +5,22 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from . import path
-from .batch import MutsBatch, SectionMutsBatch, ReadBatch, list_batch_nums
-from .io import MutsBatchIO, ReadBatchIO, RefseqIO
+from .batch import MutsBatch, RegionMutsBatch, ReadBatch, list_batch_nums
+from .io import MutsBatchIO, ReadBatchIO
 from .logs import logger
 from .rel import RelPattern
 from .report import (DATETIME_FORMAT,
                      SampleF,
                      RefF,
-                     SectF,
-                     End5F,
-                     End3F,
+                     RegF,
                      TimeEndedF,
                      NumBatchF,
                      ChecksumsF,
-                     RefseqChecksumF,
                      PooledSamplesF,
-                     JoinedSectionsF,
+                     JoinedRegionsF,
                      Report,
                      BatchedReport)
-from .seq import FULL_NAME, DNA, Section, hyphenate_ends, unite
+from .seq import DNA, Region, unite
 
 
 class Dataset(ABC):
@@ -34,9 +31,9 @@ class Dataset(ABC):
     def get_report_type(cls) -> type[Report]:
         """ Type of report. """
 
-    def __init__(self, report_file: Path, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, report_file: Path, verify_times: bool = True):
         self.report_file = report_file
+        self.verify_times = verify_times
         # Load the report here so that if the report does not have the
         # expected fields, an error will be raised inside __init__.
         # Doing so is essential for LoadFunction to determine which type
@@ -59,21 +56,6 @@ class Dataset(ABC):
     def ref(self) -> str:
         """ Name of the reference. """
         return self.report.get_field(RefF)
-
-    @property
-    @abstractmethod
-    def end5(self) -> int:
-        """ 5' end of the section. """
-
-    @property
-    @abstractmethod
-    def end3(self) -> int:
-        """ 3' end of the section. """
-
-    @property
-    @abstractmethod
-    def sect(self) -> str:
-        """ Name of the section. """
 
     @property
     @abstractmethod
@@ -150,8 +132,8 @@ class UnbiasDataset(Dataset, ABC):
         to be 0 when using the quick heuristic for unbiasing. """
 
 
-class SectionDataset(Dataset, ABC):
-    """ Dataset with a known reference sequence and section. """
+class RegionDataset(Dataset, ABC):
+    """ Dataset with a known reference sequence and region. """
 
     @property
     @abstractmethod
@@ -165,47 +147,46 @@ class SectionDataset(Dataset, ABC):
 
     @cached_property
     @abstractmethod
-    def section(self) -> Section:
-        """ Section of the dataset. """
+    def region(self) -> Region:
+        """ Region of the dataset. """
 
 
-class MutsDataset(SectionDataset, ABC):
-    """ Dataset with a known section and explicit mutational data. """
+class MutsDataset(RegionDataset, ABC):
+    """ Dataset with a known region and explicit mutational data. """
 
     @abstractmethod
-    def get_batch(self, batch_num: int) -> SectionMutsBatch:
-        """ Get a specific batch of data. """
+    def get_batch(self, batch_num: int) -> RegionMutsBatch:
+        # Redeclare this method (already declared by Dataset) for the
+        # sole purpose of enabling type linters to determine that
+        # MutsDataset.get_batch() returns a RegionMutsBatch object
+        # instead of plain ReadBatch objects.
+        pass
 
     def get_batch_count_all(self, batch_num: int, **kwargs):
         """ Calculate the counts for a specific batch of data. """
         return self.get_batch(batch_num).count_all(**kwargs)
 
-
-class NarrowDataset(SectionDataset, ABC):
-    """ Dataset with one section, in contrast to a WideDataset that
-    combines one or more sections. """
-
-    @cached_property
-    def section(self):
-        return Section(ref=self.ref,
-                       seq=self.refseq,
-                       end5=self.end5,
-                       end3=self.end3,
-                       name=self.sect)
+    def iter_batches(self):
+        # Reimplement this method (already implemented by Dataset) for
+        # the sole purpose of enabling type linters to determine that
+        # MutsDataset.iter_batches() yields RegionMutsBatch objects
+        # instead of plain ReadBatch objects.
+        for batch_num in self.batch_nums:
+            yield self.get_batch(batch_num)
 
 
 class LoadFunction(object):
     """ Function to load a dataset. """
 
     def __init__(self, data_type: type[Dataset], /, *more_types: type[Dataset]):
-        self._dataset_types = [data_type] + list(more_types)
+        self.dataset_types = [data_type] + list(more_types)
 
     def _dataset_type_consensus(self,
                                 method: Callable[[type[Dataset]], Any],
                                 what: str):
         """ Get the consensus value among all types of dataset. """
-        value0 = method(self._dataset_types[0])
-        for dataset_type in self._dataset_types[1:]:
+        value0 = method(self.dataset_types[0])
+        for dataset_type in self.dataset_types[1:]:
             if (value1 := method(dataset_type)) != value0:
                 raise ValueError(f"{self} expected exactly one {what}, "
                                  f"but got {value0} ≠ {value1}")
@@ -227,21 +208,16 @@ class LoadFunction(object):
             "automatic path fields of the report type"
         )
 
-    @property
-    def dataset_types(self):
-        """ Types of datasets that this function can load. """
-        return self._dataset_types
-
     def is_dataset_type(self, dataset: Dataset):
         """ Whether the dataset is one of the loadable types. """
         return any(isinstance(dataset, dataset_type)
-                   for dataset_type in self._dataset_types)
+                   for dataset_type in self.dataset_types)
 
     def __call__(self, report_file: Path, **kwargs):
         """ Load a dataset from the report file. """
         # Try to load the report file using each type of dataset.
         errors = dict()
-        for dataset_type in self._dataset_types:
+        for dataset_type in self.dataset_types:
             try:
                 # Return the first dataset type that works.
                 return dataset_type(report_file, **kwargs)
@@ -260,7 +236,7 @@ class LoadFunction(object):
 
     def __str__(self):
         names = ", ".join(dataset_type.__name__
-                          for dataset_type in self._dataset_types)
+                          for dataset_type in self.dataset_types)
         return f"{type(self).__name__}({names})"
 
 
@@ -281,18 +257,6 @@ class LoadedDataset(Dataset, ABC):
     def get_btype_name(cls):
         """ Name of the type of batch. """
         return cls.get_batch_type().btype()
-
-    @cached_property
-    def end5(self):
-        return self.report.get_field(End5F)
-
-    @cached_property
-    def end3(self):
-        return self.report.get_field(End3F)
-
-    @cached_property
-    def sect(self):
-        return self.report.get_field(SectF)
 
     @property
     def timestamp(self):
@@ -327,43 +291,6 @@ class LoadedDataset(Dataset, ABC):
         return batch
 
 
-class LoadedMutsDataset(LoadedDataset, MutsDataset, NarrowDataset, ABC):
-
-    @cached_property
-    def refseq(self):
-        return RefseqIO.load(
-            RefseqIO.build_path(top=self.top,
-                                sample=self.sample,
-                                ref=self.ref),
-            checksum=self.report.get_field(RefseqChecksumF)
-        ).refseq
-
-    @cached_property
-    def end5(self):
-        try:
-            # Find the 5' end in the report, if it has this field.
-            return super().end5
-        except AttributeError:
-            return 1
-
-    @cached_property
-    def end3(self):
-        try:
-            # Find the 3' end in the report, if it has this field.
-            return super().end3
-        except AttributeError:
-            return self.reflen
-
-    @cached_property
-    def sect(self):
-        try:
-            # Find the section name in the report, if it has this field.
-            return super().sect
-        except AttributeError:
-            return (FULL_NAME if self.end5 == 1 and self.end3 == self.reflen
-                    else hyphenate_ends(self.end5, self.end3))
-
-
 class MergedDataset(Dataset, ABC):
     """ Dataset made by merging one or more constituent datasets. """
 
@@ -383,17 +310,26 @@ class MergedDataset(Dataset, ABC):
                              for dataset in self.datasets
                              for dataset_dir in dataset.data_dirs]
 
-    def _list_dataset_attr(self, name: str):
+    def _list_dataset_attr(self, name: str, *subnames: str):
         """ Get a list of an attribute for each dataset. """
-        return [getattr(dataset, name) for dataset in self.datasets]
+        values = list()
+        for dataset in self.datasets:
+            value = getattr(dataset, name)
+            for subname in subnames:
+                value = getattr(value, subname)
+            values.append(value)
+        return values
 
-    def _get_common_attr(self, name: str):
+    def _get_common_attr(self, name: str, *subnames):
         """ Get a common attribute among datasets. """
-        attrs = list(set(self._list_dataset_attr(name)))
-        if len(attrs) != 1:
+        values = list()
+        for value in self._list_dataset_attr(name, *subnames):
+            if value not in values:
+                values.append(value)
+        if len(values) != 1:
             raise ValueError(f"{type(self).__name__} expected exactly 1 value "
-                             f"for attribute {repr(name)}, but got {attrs}")
-        return attrs[0]
+                             f"for attribute {name}, but got {values}")
+        return values[0]
 
     @cached_property
     def pattern(self):
@@ -405,7 +341,7 @@ class MergedDataset(Dataset, ABC):
         return max(dataset.timestamp for dataset in self.datasets)
 
 
-class MergedSectionDataset(MergedDataset, SectionDataset, ABC):
+class MergedRegionDataset(MergedDataset, RegionDataset, ABC):
 
     @cached_property
     def refseq(self):
@@ -456,18 +392,6 @@ class TallDataset(MergedDataset, ABC):
         return self._list_dataset_attr("sample")
 
     @cached_property
-    def end5(self):
-        return self._get_common_attr("end5")
-
-    @cached_property
-    def end3(self):
-        return self._get_common_attr("end3")
-
-    @cached_property
-    def sect(self):
-        return self._get_common_attr("sect")
-
-    @cached_property
     def nums_batches(self) -> list[int]:
         """ Number of batches in each dataset in the pool. """
         return self._list_dataset_attr("num_batches")
@@ -500,63 +424,43 @@ class TallDataset(MergedDataset, ABC):
         return batch
 
 
-class TallMutsDataset(TallDataset,
-                      MutsDataset,
-                      MergedSectionDataset,
-                      NarrowDataset,
-                      ABC):
-    """ TallDataset with mutational data. """
-
-
-class WideDataset(MergedSectionDataset, ABC):
+class WideDataset(MergedRegionDataset, ABC):
     """ Dataset made by horizontally joining other datasets from one or
-    more sections of the same reference sequence. """
+    more regions of the same reference sequence. """
 
     @cached_property
     def datasets(self):
-        # Determine the name of the joined section and the individual
-        # sections from the report.
-        joined_sects = self.report.get_field(JoinedSectionsF)
-        # Determine the report file for each joined section.
+        # Determine the name of the joined region and the individual
+        # regions from the report.
+        joined_regs = self.report.get_field(JoinedRegionsF)
+        # Determine the report file for each joined region.
         load_func = self.get_dataset_load_func()
-        section_report_files = [path.cast_path(
+        region_report_files = [path.cast_path(
             self.report_file,
             self.get_report_type().seg_types(),
             load_func.report_path_seg_types,
             **load_func.report_path_auto_fields,
-            sect=sect
-        ) for sect in joined_sects]
-        if not section_report_files:
+            reg=reg
+        ) for reg in joined_regs]
+        if not region_report_files:
             raise ValueError(f"{self} got no datasets")
         return list(map(self.get_dataset_load_func(),
-                        section_report_files))
+                        region_report_files))
 
     @cached_property
     def num_batches(self):
         return self._get_common_attr("num_batches")
 
     @cached_property
-    def sects(self):
-        """ Names of all joined sections. """
-        return self._list_dataset_attr("sect")
+    def region_names(self):
+        """ Names of all joined regions. """
+        return self._list_dataset_attr("region", "name")
 
     @cached_property
-    def section(self):
-        return unite(*self._list_dataset_attr("section"),
-                     name=self.report.get_field(SectF),
+    def region(self):
+        return unite(*self._list_dataset_attr("region"),
+                     name=self.report.get_field(RegF),
                      refseq=self.refseq)
-
-    @property
-    def sect(self):
-        return self.section.name
-
-    @cached_property
-    def end5(self):
-        return self.section.end5
-
-    @cached_property
-    def end3(self):
-        return self.section.end3
 
     @abstractmethod
     def _join(self, batches: Iterable[tuple[str, ReadBatch]]) -> ReadBatch:
@@ -564,7 +468,7 @@ class WideDataset(MergedSectionDataset, ABC):
 
     def get_batch(self, batch_num: int):
         # Join the batch with that number from every dataset.
-        return self._join((dataset.sect, dataset.get_batch(batch_num))
+        return self._join((dataset.region.name, dataset.get_batch(batch_num))
                           for dataset in self.datasets)
 
 
@@ -583,7 +487,7 @@ class MultistepDataset(MutsDataset, ABC):
 
     @classmethod
     @abstractmethod
-    def get_dataset2_type(cls) -> type[SectionDataset]:
+    def get_dataset2_type(cls) -> type[RegionDataset]:
         """ Type of Dataset 2. """
 
     @classmethod
@@ -609,47 +513,39 @@ class MultistepDataset(MutsDataset, ABC):
         )
 
     @classmethod
-    def load_dataset1(cls, dataset2_report_file: Path):
+    def load_dataset1(cls, dataset2_report_file: Path, verify_times: bool):
         """ Load Dataset 1. """
         load_func = cls.get_dataset1_load_func()
-        return load_func(cls.get_dataset1_report_file(dataset2_report_file))
+        return load_func(cls.get_dataset1_report_file(dataset2_report_file),
+                         verify_times=verify_times)
 
     @classmethod
-    def load_dataset2(cls, dataset2_report_file: Path):
+    def load_dataset2(cls, dataset2_report_file: Path, verify_times: bool):
         """ Load Dataset 2. """
         load_func = cls.get_dataset2_load_func()
-        return load_func(dataset2_report_file)
+        return load_func(dataset2_report_file,
+                         verify_times=verify_times)
 
     def __init__(self, dataset2_report_file: Path, **kwargs):
         super().__init__(dataset2_report_file, **kwargs)
-        data1 = self.load_dataset1(dataset2_report_file)
-        data2 = self.load_dataset2(dataset2_report_file)
-        if data1.timestamp > data2.timestamp:
-            raise ValueError(f"To make a {type(self).__name__}, "
-                             f"the {type(data1).__name__} must have been "
-                             f"written before the {type(data2).__name__}, "
-                             f"but the timestamps in their report files are "
-                             f"{data1.timestamp.strftime(DATETIME_FORMAT)} and "
-                             f"{data2.timestamp.strftime(DATETIME_FORMAT)}, "
-                             f"respectively")
+        data1 = self.load_dataset1(dataset2_report_file, self.verify_times)
+        data2 = self.load_dataset2(dataset2_report_file, self.verify_times)
+        if self.verify_times and data1.timestamp > data2.timestamp:
+            raise ValueError(
+                f"To make a {type(self).__name__}, the {type(data1).__name__} "
+                f"must have been written before the {type(data2).__name__}, "
+                f"but the timestamps in their report files are "
+                f"{data1.timestamp.strftime(DATETIME_FORMAT)} and "
+                f"{data2.timestamp.strftime(DATETIME_FORMAT)}, respectively. "
+                f"If you are sure this inconsistency is not a problem, "
+                f"then you can suppress this error using --no-verify-times"
+            )
         self.data1 = data1
         self.data2 = data2
 
     @property
     def refseq(self):
         return self.data1.refseq
-
-    @property
-    def end5(self):
-        return self.data2.end5
-
-    @property
-    def end3(self):
-        return self.data2.end3
-
-    @property
-    def sect(self):
-        return self.data2.sect
 
     @property
     def timestamp(self):
@@ -672,12 +568,9 @@ class MultistepDataset(MutsDataset, ABC):
                                self.data2.get_batch(batch_num))
 
 
-class ArrowDataset(MultistepDataset, NarrowDataset, ABC):
-    """ Dataset made by integrating two datasets from different steps of
-    the workflow, with one section. """
-
-
-def load_datasets(input_path: Iterable[str | Path], load_func: LoadFunction):
+def load_datasets(input_path: Iterable[str | Path],
+                  load_func: LoadFunction,
+                  **kwargs):
     """ Yield a Dataset from each report file in `input_path`.
 
     Parameters
@@ -690,13 +583,13 @@ def load_datasets(input_path: Iterable[str | Path], load_func: LoadFunction):
     for report_file in path.find_files_chain(input_path,
                                              load_func.report_path_seg_types):
         try:
-            yield load_func(report_file)
+            yield load_func(report_file, **kwargs)
         except Exception as error:
             logger.error(error)
 
 ########################################################################
 #                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
 #                                                                      #
 # This file is part of SEISMIC-RNA.                                    #
 #                                                                      #

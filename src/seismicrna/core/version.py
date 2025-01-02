@@ -1,7 +1,7 @@
 import re
 
 
-__version__ = "0.22.0dev"
+__version__ = "0.22.3"
 
 
 def parse_version(version: str = __version__):
@@ -25,7 +25,7 @@ def format_version(major: int = MAJOR,
 
 ########################################################################
 #                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
 #                                                                      #
 # This file is part of SEISMIC-RNA.                                    #
 #                                                                      #

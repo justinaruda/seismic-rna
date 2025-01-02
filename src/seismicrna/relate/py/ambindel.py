@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from itertools import chain
 
 from .encode import encode_relate
 from ...core.rel import DELET, INS_5, INS_3, MATCH, SUB_N
-from ...core.seq import DNA
 
 
 def get_ins_rel(insert3: bool):
@@ -22,24 +20,28 @@ def get_lateral(lateral3: int, insert3: int):
 
 def _check_out_of_bounds(next_opposite: int, end5: int, end3: int):
     """ Check if the position to move the indel is out of bounds. """
-    return next_opposite <= end5 or next_opposite >= end3
+    return not end5 < next_opposite < end3
 
 
-def _check_collisions(diffs: list[Indel], next_lateral3: int):
-    """ Check if moving the indel will make it collide with another
-    indel of the opposite kind. """
-    return (_get_indel_by_opp(diffs, next_lateral3) or
-            _get_indel_by_opp(diffs, calc_lateral5(next_lateral3)))
+def _consistent_rels(rel1: int, rel2: int):
+    """ Whether the relationships are consistent. """
+    # The relationships are consistent if one of the following is true:
+    # - There is at least one type of primary relationship (i.e. match,
+    #   substitution to each base) that both of them could both be.
+    # - Both could be substitutions to any base.
+    return bool((rel1 & rel2) or (rel1 & SUB_N and rel2 & SUB_N))
 
 
 class Indel(ABC):
-    """ Insertion or deletion. """
+    """ Insertion or Deletion. """
 
-    __slots__ = ["opposite", "lateral3"]
+    __slots__ = ["opposite", "lateral3", "pod"]
 
-    def __init__(self, opposite: int, lateral3: int):
+    def __init__(self, opposite: int, lateral3: int, pod: IndelPod):
         self.opposite = opposite
         self.lateral3 = lateral3
+        self.pod = pod
+        self.pod.add(self)
 
     @property
     def lateral5(self):
@@ -48,10 +50,10 @@ class Indel(ABC):
     def get_lateral(self, insert3: bool):
         return get_lateral(self.lateral3, insert3)
 
-    def _get_positions(self, sames: list[Indel], from5to3: bool):
+    def _calc_positions(self, move5to3: bool):
         # Find the position within the indel's own sequence with which
         # to try to swap the indel.
-        if from5to3:
+        if move5to3:
             increment = 1
             swap_lateral = self.lateral3
         else:
@@ -65,25 +67,19 @@ class Indel(ABC):
         next_opposite = self.opposite + increment
         # Keep incrementing until the position does not coincide with
         # any other indel of the same kind.
-        while _get_indel_by_opp(sames, next_opposite):
+        while self.pod.get_indel_by_opp(next_opposite):
             next_opposite += increment
         return swap_lateral, next_lateral3, next_opposite
 
     def move(self, opposite: int, lateral3: int):
+        """ Move the indel to a new position. """
         self.opposite = opposite
         self.lateral3 = lateral3
 
-    def __str__(self):
-        return (f"{type(self).__name__} at {self.opposite} "
-                f"{self.lateral5, self.lateral3}")
-
-    def __bool__(self):
-        return True
-
     @abstractmethod
     def _calc_rels(self,
-                   ref_seq: DNA,
-                   read_seq: DNA,
+                   ref_seq: str,
+                   read_seq: str,
                    read_qual: str,
                    min_qual: str,
                    swap_lateral: int,
@@ -94,33 +90,39 @@ class Indel(ABC):
     @abstractmethod
     def try_move(self,
                  rels: dict[int, int],
-                 dels: list[Deletion],
-                 inns: list[Insertion],
+                 pods: list[IndelPod],
                  insert3: bool,
-                 ref_seq: DNA,
-                 read_seq: DNA,
+                 ref_seq: str,
+                 read_seq: str,
                  read_qual: str,
                  min_qual: str,
                  ref_end5: int,
                  ref_end3: int,
                  read_end5: int,
                  read_end3: int,
-                 from5to3: bool) -> bool:
+                 move5to3: bool) -> bool:
         """ Try to move the indel a step in one direction. """
+
+    def __bool__(self):
+        return True
+
+    def __str__(self):
+        return (f"{type(self).__name__} at {self.opposite} "
+                f"{self.lateral5, self.lateral3}")
 
 
 class Deletion(Indel):
 
     def _calc_rels(self,
-                   ref_seq: DNA,
-                   read_seq: DNA,
-                   read_qual: str,
+                   ref_seq: str,
+                   read_seq: str,
+                   read_quals: str,
                    min_qual: str,
                    swap_lateral: int,
                    next_opposite: int):
         # Read base with which the deletion will swap.
         read_base = read_seq[swap_lateral - 1]
-        read_qual = read_qual[swap_lateral - 1]
+        read_qual = read_quals[swap_lateral - 1]
         # Reference base that is currently deleted from the read; will
         # move opposite that read base.
         ref_base_del = ref_seq[self.opposite - 1]
@@ -139,24 +141,23 @@ class Deletion(Indel):
 
     def try_move(self,
                  rels: dict[int, int],
-                 dels: list[Deletion],
-                 inns: list[Insertion],
+                 pods: list[IndelPod],
                  insert3: bool,
-                 ref_seq: DNA,
-                 read_seq: DNA,
+                 ref_seq: str,
+                 read_seq: str,
                  read_qual: str,
                  min_qual: str,
                  ref_end5: int,
                  ref_end3: int,
                  read_end5: int,
                  read_end3: int,
-                 from5to3: bool):
+                 move5to3: bool):
         (swap_lateral,
          next_lateral3,
-         next_opposite) = self._get_positions(dels, from5to3)
+         next_opposite) = self._calc_positions(move5to3)
         if _check_out_of_bounds(next_opposite, ref_end5, ref_end3):
             return False
-        if _check_collisions(inns, next_lateral3):
+        if _check_collisions(pods, self.pod, next_lateral3):
             return False
         rel_del, rel_opp = self._calc_rels(ref_seq,
                                            read_seq,
@@ -173,7 +174,7 @@ class Deletion(Indel):
         # the reference base that was originally deleted from the read.
         rels[self.opposite] = rels.get(self.opposite, MATCH) | rel_del
         # Move the deletion.
-        _move_indels(self, dels, next_opposite, next_lateral3)
+        _move_indels(self, next_opposite, next_lateral3)
         # Mark the position to which the deletion moves.
         rels[self.opposite] = rels.get(self.opposite, MATCH) | DELET
         return True
@@ -182,9 +183,9 @@ class Deletion(Indel):
 class Insertion(Indel):
 
     def _calc_rels(self,
-                   ref_seq: DNA,
-                   read_seq: DNA,
-                   read_qual: str,
+                   ref_seq: str,
+                   read_seq: str,
+                   read_quals: str,
                    min_qual: str,
                    swap_lateral: int,
                    next_opposite: int):
@@ -193,11 +194,11 @@ class Insertion(Indel):
         # Read base that is currently inserted into the reference; will
         # move opposite that reference base.
         read_base_ins = read_seq[self.opposite - 1]
-        read_qual_ins = read_qual[self.opposite - 1]
+        read_qual_ins = read_quals[self.opposite - 1]
         # Read base that is currently opposite that reference base; will
         # become an insertion after the move.
         read_base_opp = read_seq[next_opposite - 1]
-        read_qual_opp = read_qual[next_opposite - 1]
+        read_qual_opp = read_quals[next_opposite - 1]
         # Calculate the relationship between the reference base and each
         # base in the read.
         rel_ins = encode_relate(ref_base,
@@ -212,24 +213,23 @@ class Insertion(Indel):
 
     def try_move(self,
                  rels: dict[int, int],
-                 dels: list[Deletion],
-                 inns: list[Insertion],
+                 pods: list[IndelPod],
                  insert3: bool,
-                 ref_seq: DNA,
-                 read_seq: DNA,
+                 ref_seq: str,
+                 read_seq: str,
                  read_qual: str,
                  min_qual: str,
                  ref_end5: int,
                  ref_end3: int,
                  read_end5: int,
                  read_end3: int,
-                 from5to3: bool):
+                 move5to3: bool):
         (swap_lateral,
          next_lateral3,
-         next_opposite) = self._get_positions(inns, from5to3)
+         next_opposite) = self._calc_positions(move5to3)
         if _check_out_of_bounds(next_opposite, read_end5, read_end3):
             return False
-        if _check_collisions(dels, next_lateral3):
+        if _check_collisions(pods, self.pod, next_lateral3):
             return False
         rel_ins, rel_opp = self._calc_rels(ref_seq,
                                            read_seq,
@@ -242,13 +242,13 @@ class Insertion(Indel):
         if not _consistent_rels(rel_ins, rel_opp):
             return False
         init_lateral = self.get_lateral(insert3)
-        if from5to3 == insert3:
+        if move5to3 == insert3:
             # The insertion moves to the same side as it is marked.
             # Move the indels.
-            _move_indels(self, inns, next_opposite, next_lateral3)
+            _move_indels(self, next_opposite, next_lateral3)
             # Check after the move.
             if rel_ins != MATCH or all(ins.get_lateral(insert3) != init_lateral
-                                       for ins in inns):
+                                       for ins in self.pod.indels):
                 # If there is another insertion next to the base that just
                 # took the place of the insertion that moved, then do not
                 # mark the position of that base as a possible match.
@@ -264,7 +264,7 @@ class Insertion(Indel):
             # The insertion moves to the opposite side as it is marked.
             (swap_lateral_,
              next_lateral3_,
-             next_opposite_) = self._get_positions(inns, insert3)
+             next_opposite_) = self._calc_positions(insert3)
             rel_ins_, rel_opp_ = self._calc_rels(ref_seq,
                                                  read_seq,
                                                  read_qual,
@@ -272,10 +272,10 @@ class Insertion(Indel):
                                                  swap_lateral_,
                                                  next_opposite_)
             # Move the indels.
-            _move_indels(self, inns, next_opposite, next_lateral3)
+            _move_indels(self, next_opposite, next_lateral3)
             # Check after the move.
             if rel_opp_ != MATCH or all(ins.get_lateral(insert3) != init_lateral
-                                        for ins in inns):
+                                        for ins in self.pod.indels):
                 # If there is another insertion next to the base that just
                 # took the place of the insertion that moved, then do not
                 # mark the position of that base as a possible match.
@@ -288,171 +288,230 @@ class Insertion(Indel):
         return True
 
 
-def _get_indel_by_opp(indels: list[Indel], opposite: int):
-    """ Return the indel that lies opposite the given position (opposite),
-    or None if such an indel does not exist. """
-    matches = [indel for indel in indels if indel.opposite == opposite]
-    if matches:
-        if len(matches) > 1:
-            raise ValueError(f"{len(matches)} indels have opposite == {opposite}: "
-                             f"{list(map(str, matches))}")
-        return matches[0]
-    return None
+class IndelPod(ABC):
+    __slots__ = ["n", "indels"]
+
+    @classmethod
+    @abstractmethod
+    def indel_type(cls) -> type[Indel]:
+        """ All indels in the pod must be of this type. """
+
+    def __init__(self, n: int):
+        self.n = n
+        self.indels: list[Indel] = list()
+
+    def add(self, indel: Indel):
+        """ Add an indel to the pod, performing validation. """
+        assert isinstance(indel, self.indel_type())
+        for other in self.indels:
+            assert indel.opposite != other.opposite
+        self.indels.append(indel)
+
+    def sort(self, move5to3: bool):
+        """ Sort the indels in the pod by their positions. """
+        self.indels.sort(key=(lambda indel: indel.opposite),
+                         reverse=(not move5to3))
+
+    def get_indel_by_opp(self, opposite: int):
+        """ Return the indel that lies opposite the given position
+        (opposite), or None if such an indel does not exist. """
+        for indel in self.indels:
+            if indel.opposite == opposite:
+                return indel
+        return None
+
+    def __str__(self):
+        return f"{type(self).__name__} {self.n}: {list(map(str, self.indels))}"
 
 
-def _consistent_rels(rel1: int, rel2: int):
-    """ Whether the relationships are consistent. """
-    # The relationships are consistent if one of the following is true:
-    # - There is at least one type of primary relationship (i.e. match,
-    #   substitution to each base) that both of them could both be.
-    # - Both could be substitutions to any base.
-    return bool((rel1 & rel2) or (rel1 & SUB_N and rel2 & SUB_N))
+class DeletionPod(IndelPod):
+
+    @classmethod
+    def indel_type(cls):
+        return Deletion
 
 
-def _move_indels(indel: Indel, sames: list[Indel], opposite: int, lateral3: int):
+class InsertionPod(IndelPod):
+
+    @classmethod
+    def indel_type(cls):
+        return Insertion
+
+
+def _check_collisions(pods: list[IndelPod],
+                      pod: IndelPod,
+                      next_lateral3: int):
+    """ Check if moving the indel will make it collide with another
+    indel of the opposite kind. """
+    pod_index = pods.index(pod)
+    next_pod_index = pod_index + 1
+    if 0 <= next_pod_index < len(pods):
+        next_pod = pods[next_pod_index]
+        assert not isinstance(next_pod, type(pod))
+        next_indel = next_pod.indels[0]
+        return (next_indel.opposite == next_lateral3
+                or next_indel.opposite == calc_lateral5(next_lateral3))
+    return False
+
+
+def _move_indels(indel: Indel, opposite: int, lateral3: int):
     """ Move an indel while adjusting the positions of any other indels
     through which the moving indel tunnels. """
     # Move any indels through which this insertion will tunnel.
-    for same in sames:
-        if (indel.opposite < same.opposite < opposite
-                or opposite < same.opposite < indel.opposite):
-            same.move(same.opposite, lateral3)
+    for other in indel.pod.indels:
+        if (indel.opposite < other.opposite < opposite
+                or opposite < other.opposite < indel.opposite):
+            other.move(other.opposite, lateral3)
     # Move the indel.
     indel.move(opposite, lateral3)
 
 
-def _count_muts(ref_seq: DNA,
-                read_seq: DNA,
-                read_qual: str,
-                min_qual: str,
-                ref_end5: int,
-                ref_end3: int,
-                read_end5: int,
-                read_end3: int,
-                dels: list[Deletion],
-                inns: list[Insertion]):
-    """ Count the mutations given the positions of the indels. """
-    num_muts = 0
-    # Positions in reference and read are initially 0-indexed.
-    ref_pos = ref_end5 - 1
-    read_pos = read_end5 - 1
-    while ref_pos < ref_end3 and read_pos < read_end3:
-        # Get the sequence information.
-        ref_base = ref_seq[ref_pos]
-        read_base = read_seq[read_pos]
-        qual = read_qual[read_pos]
-        # Make the positions 1-indexed.
-        ref_pos += 1
-        read_pos += 1
-        # Check if this position has an indel.
-        has_del = _get_indel_by_opp(dels, ref_pos)
-        has_ins = _get_indel_by_opp(inns, read_pos)
-        if has_del:
-            if has_ins:
-                raise ValueError(f"Position {ref_pos, read_pos} has both a "
-                                 f"deletion and an insertion")
-            # Deletion: move back the read position.
-            read_pos -= 1
-            num_muts += 1
-        elif has_ins:
-            # Insertion: move back the reference position.
-            ref_pos -= 1
-            num_muts += 1
-        else:
-            # Match or substitution: determine which.
-            if qual >= min_qual and read_base != ref_base:
-                num_muts += 1
-    if ref_pos != ref_end3:
-        raise ValueError(
-            f"Reached only position {ref_pos} of {ref_end3} in the reference"
-        )
-    if read_pos != read_end3:
-        raise ValueError(
-            f"Reached only position {read_pos} of {read_end3} in the read"
-        )
-    return num_muts
+def _sort_pods(pods: list[IndelPod], move5to3: bool):
+    pods.sort(key=(lambda pod: pod.n), reverse=(not move5to3))
 
 
-def _find_ambindels(rels: dict[int, int],
-                    dels: list[Deletion],
-                    inns: list[Insertion],
-                    insert3: bool,
-                    ref_seq: DNA,
-                    read_seq: DNA,
-                    read_qual: str,
-                    min_qual: str,
-                    ref_end5: int,
-                    ref_end3: int,
-                    read_end5: int,
-                    read_end3: int,
-                    from5to3: bool,
-                    restore: bool):
-    for indel in chain(dels, inns):
-        init_opp = indel.opposite
-        init_lateral3 = indel.lateral3
-        if indel.try_move(rels=rels,
-                          dels=dels,
-                          inns=inns,
-                          insert3=insert3,
-                          ref_seq=ref_seq,
-                          read_seq=read_seq,
-                          read_qual=read_qual,
-                          min_qual=min_qual,
-                          ref_end5=ref_end5,
-                          ref_end3=ref_end3,
-                          read_end5=read_end5,
-                          read_end3=read_end3,
-                          from5to3=from5to3):
-            # Try to move the other indels if moving this one succeeded.
-            _find_ambindels(rels=rels,
-                            dels=dels,
-                            inns=inns,
-                            insert3=insert3,
-                            ref_seq=ref_seq,
-                            read_seq=read_seq,
-                            read_qual=read_qual,
-                            min_qual=min_qual,
-                            ref_end5=ref_end5,
-                            ref_end3=ref_end3,
-                            read_end5=read_end5,
-                            read_end3=read_end3,
-                            from5to3=from5to3,
-                            restore=restore)
-            if restore:
-                if isinstance(indel, Deletion):
-                    sames = dels
-                elif isinstance(indel, Insertion):
-                    sames = inns
-                else:
-                    raise TypeError(indel)
-                # Move the indel(s) back to the original position(s).
-                _move_indels(indel, sames, init_opp, init_lateral3)
+def _find_ambindels_recurse(rels: dict[int, int],
+                            pods: list[IndelPod],
+                            insert3: bool,
+                            ref_seq: str,
+                            read_seq: str,
+                            read_qual: str,
+                            min_qual: str,
+                            ref_end5: int,
+                            ref_end3: int,
+                            read_end5: int,
+                            read_end3: int,
+                            move5to3: bool,
+                            pod_index: int,
+                            indel_index: int):
+    assert 0 <= pod_index < len(pods)
+    pod = pods[pod_index]
+    assert 0 <= indel_index < len(pod.indels)
+    indel = pod.indels[indel_index]
+    init_opposite = indel.opposite
+    init_lateral3 = indel.lateral3
+    if indel.try_move(rels=rels,
+                      pods=pods,
+                      insert3=insert3,
+                      ref_seq=ref_seq,
+                      read_seq=read_seq,
+                      read_qual=read_qual,
+                      min_qual=min_qual,
+                      ref_end5=ref_end5,
+                      ref_end3=ref_end3,
+                      read_end5=read_end5,
+                      read_end3=read_end3,
+                      move5to3=move5to3):
+        # Re-sort the indels in the pod so that they stay in positional
+        # order following the move.
+        pod.sort(move5to3)
+        # Try to move the indel another step.
+        _find_ambindels_recurse(rels=rels,
+                                pods=pods,
+                                insert3=insert3,
+                                ref_seq=ref_seq,
+                                read_seq=read_seq,
+                                read_qual=read_qual,
+                                min_qual=min_qual,
+                                ref_end5=ref_end5,
+                                ref_end3=ref_end3,
+                                read_end5=read_end5,
+                                read_end3=read_end3,
+                                move5to3=move5to3,
+                                pod_index=pod_index,
+                                indel_index=indel_index)
+        if move5to3:
+            # Move the indel back to its initial position.
+            _move_indels(indel, init_opposite, init_lateral3)
+            # Re-sort the indels in the pod so that they stay in
+            # positional order following the move.
+            pod.sort(move5to3)
+    if indel_index + 1 < len(pod.indels):
+        # Move the next indel in the pod.
+        _find_ambindels_recurse(rels=rels,
+                                pods=pods,
+                                insert3=insert3,
+                                ref_seq=ref_seq,
+                                read_seq=read_seq,
+                                read_qual=read_qual,
+                                min_qual=min_qual,
+                                ref_end5=ref_end5,
+                                ref_end3=ref_end3,
+                                read_end5=read_end5,
+                                read_end3=read_end3,
+                                move5to3=move5to3,
+                                pod_index=pod_index,
+                                indel_index=(indel_index + 1))
+    if pod_index > 0:
+        # Move the indels in the previous pod.
+        _find_ambindels_recurse(rels=rels,
+                                pods=pods,
+                                insert3=insert3,
+                                ref_seq=ref_seq,
+                                read_seq=read_seq,
+                                read_qual=read_qual,
+                                min_qual=min_qual,
+                                ref_end5=ref_end5,
+                                ref_end3=ref_end3,
+                                read_end5=read_end5,
+                                read_end3=read_end3,
+                                move5to3=move5to3,
+                                pod_index=(pod_index - 1),
+                                indel_index=0)
 
 
 def find_ambindels(rels: dict[int, int],
-                   dels: list[Deletion],
-                   inns: list[Insertion],
+                   pods: list[IndelPod],
                    insert3: bool,
-                   ref_seq: DNA,
-                   read_seq: DNA,
+                   ref_seq: str,
+                   read_seq: str,
                    read_qual: str,
                    min_qual: str,
                    ref_end5: int,
                    ref_end3: int,
                    read_end5: int,
                    read_end3: int):
-    for mode in [False, True]:
-        _find_ambindels(rels=rels,
-                        dels=dels,
-                        inns=inns,
-                        insert3=insert3,
-                        ref_seq=ref_seq,
-                        read_seq=read_seq,
-                        read_qual=read_qual,
-                        min_qual=min_qual,
-                        ref_end5=ref_end5,
-                        ref_end3=ref_end3,
-                        read_end5=read_end5,
-                        read_end3=read_end3,
-                        from5to3=mode,
-                        restore=mode)
+    if not pods:
+        # Nothing to do.
+        return
+    for move5to3 in [False, True]:
+        # Sort the pods.
+        _sort_pods(pods, move5to3)
+        # Sort the indels in each pod.
+        for pod in pods:
+            pod.sort(move5to3)
+        _find_ambindels_recurse(rels=rels,
+                                pods=pods,
+                                insert3=insert3,
+                                ref_seq=ref_seq,
+                                read_seq=read_seq,
+                                read_qual=read_qual,
+                                min_qual=min_qual,
+                                ref_end5=ref_end5,
+                                ref_end3=ref_end3,
+                                read_end5=read_end5,
+                                read_end3=read_end3,
+                                move5to3=move5to3,
+                                pod_index=(len(pods) - 1),
+                                indel_index=0)
+
+########################################################################
+#                                                                      #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
+#                                                                      #
+# This file is part of SEISMIC-RNA.                                    #
+#                                                                      #
+# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
+# it under the terms of the GNU General Public License as published by #
+# the Free Software Foundation; either version 3 of the License, or    #
+# (at your option) any later version.                                  #
+#                                                                      #
+# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
+# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
+# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
+# Public License for more details.                                     #
+#                                                                      #
+# You should have received a copy of the GNU General Public License    #
+# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
+#                                                                      #
+########################################################################

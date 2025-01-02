@@ -11,20 +11,21 @@ CMD_TABLE = "table"
 CMD_FOLD = "fold"
 CMD_GRAPH = "graph"
 CMD_EXPORT = "export"
-CMD_LISTPOS = "+listpos"
-CMD_SPLITBAM = "+splitbam"
-CMD_CLEANFA = "+cleanfa"
-CMD_RENUMCT = "+renumct"
-CMD_CT2DB = "+ct2db"
-CMD_DB2CT = "+db2ct"
-CMD_DRAW = "+draw"
-CMD_SIM = "+sim"
-CMD_DATAPATH = "+datapath"
-CMD_TEST = "+test"
+CMD_LISTPOS = "listpos"
+CMD_SPLITBAM = "splitbam"
+CMD_CLEANFA = "cleanfa"
+CMD_RENUMCT = "renumct"
+CMD_CT2DB = "ct2db"
+CMD_DB2CT = "db2ct"
+CMD_DRAW = "draw"
+CMD_SIM = "sim"
+CMD_DATAPATH = "datapath"
+CMD_MIGRATE = "migrate"
+CMD_TEST = "test"
 
 ########################################################################
 #                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
 #                                                                      #
 # This file is part of SEISMIC-RNA.                                    #
 #                                                                      #

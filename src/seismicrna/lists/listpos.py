@@ -15,17 +15,17 @@ from ..core.seq import FIELD_REF, POS_NAME
 from ..core.task import as_list_of_tuples, dispatch
 from ..core.write import need_write
 from ..core.table import MUTAT_REL, PositionTable
-from ..graph.base import load_pos_tables
+from ..graph.table import load_pos_tables
 
 
 def find_pos(table: PositionTable,
              max_fmut_pos: float,
              complement: bool):
     # Initially select all unmasked positions.
-    section = table.section.copy()
-    positions = section.unmasked_int
+    region = table.region.copy()
+    positions = region.unmasked_int
     # Apply each filter.
-    section.add_mask(
+    region.add_mask(
         "max_fmut_pos",
         positions[table.fetch_ratio(rel=MUTAT_REL,
                                     exclude_masked=True,
@@ -33,7 +33,7 @@ def find_pos(table: PositionTable,
                   > max_fmut_pos],
         complement=complement
     )
-    return section.unmasked_int
+    return region.unmasked_int
 
 
 def list_pos(table: PositionTable, force: bool, **kwargs):
@@ -84,3 +84,24 @@ params = [
 def cli(*args, **kwargs):
     """ List positions meeting specific criteria. """
     return run(*args, **kwargs)
+
+########################################################################
+#                                                                      #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
+#                                                                      #
+# This file is part of SEISMIC-RNA.                                    #
+#                                                                      #
+# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
+# it under the terms of the GNU General Public License as published by #
+# the Free Software Foundation; either version 3 of the License, or    #
+# (at your option) any later version.                                  #
+#                                                                      #
+# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
+# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
+# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
+# Public License for more details.                                     #
+#                                                                      #
+# You should have received a copy of the GNU General Public License    #
+# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
+#                                                                      #
+########################################################################

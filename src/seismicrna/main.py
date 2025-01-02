@@ -11,18 +11,24 @@ from . import (wf,
                mask,
                cluster,
                join,
-               #table,
+               table,
                lists,
                fold,
                graph,
                export,
                draw,
+               migrate,
                test,
                sim,
                cleanfa,
                renumct,
                __version__)
 from .align import split
+from .browser import (cli_docs,
+                      cli_github,
+                      cli_pypi,
+                      cli_conda,
+                      cli_biorxiv)
 from .core import rna
 from .core.arg import (opt_log,
                        opt_log_color,
@@ -78,6 +84,7 @@ def cli(ctx: Context,
 
 
 # Add all commands to the main CLI command group.
+
 for module in (wf,
                demult,
                align,
@@ -86,25 +93,32 @@ for module in (wf,
                mask,
                cluster,
                join,
-               #table,
+               table,
                fold,
                graph,
                export,
                draw,
+               migrate,
                test,
                sim,
                cleanfa,
                renumct):
     cli.add_command(module.cli)
+
 cli.add_command(split.cli)
 cli.add_command(lists.listpos.cli)
 cli.add_command(rna.convert.cli_ct2db)
 cli.add_command(rna.convert.cli_db2ct)
 cli.add_command(fold.cli_datapath)
+cli.add_command(cli_docs)
+cli.add_command(cli_github)
+cli.add_command(cli_pypi)
+cli.add_command(cli_conda)
+cli.add_command(cli_biorxiv)
 
 ########################################################################
 #                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
 #                                                                      #
 # This file is part of SEISMIC-RNA.                                    #
 #                                                                      #

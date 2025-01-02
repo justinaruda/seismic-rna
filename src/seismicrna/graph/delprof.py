@@ -4,7 +4,7 @@ import numpy as np
 from click import command
 from plotly import graph_objects as go
 
-from .base import GraphWriter, PosGraphRunner
+from .table import TableGraphWriter, PosGraphRunner
 from .color import ColorMapGraph, SeqColorMap
 from .trace import iter_seq_base_bar_traces
 from .twotable import TwoTableRunner, TwoTableWriter, TwoTableMergedGraph
@@ -53,7 +53,7 @@ class DeltaProfileGraph(TwoTableMergedGraph, ColorMapGraph):
         fig.update_yaxes(gridcolor="#d0d0d0")
 
 
-class DeltaProfileWriter(TwoTableWriter, GraphWriter):
+class DeltaProfileWriter(TwoTableWriter, TableGraphWriter):
 
     @classmethod
     def get_graph_type(cls):
@@ -74,7 +74,7 @@ def cli(*args, **kwargs):
 
 ########################################################################
 #                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
 #                                                                      #
 # This file is part of SEISMIC-RNA.                                    #
 #                                                                      #

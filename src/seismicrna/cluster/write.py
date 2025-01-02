@@ -81,7 +81,7 @@ def run_ks(uniq_reads: UniqReads,
     path_kwargs = dict(top=top,
                        sample=uniq_reads.sample,
                        ref=uniq_reads.ref,
-                       sect=uniq_reads.section.name)
+                       reg=uniq_reads.region.name)
     runs_ks = dict()
     ks = validate_ks(ks)
     # Loop through every K if try_all_ks is True, otherwise go until the
@@ -138,6 +138,7 @@ def cluster(mask_report_file: Path, *,
             force: bool,
             cluster_pos_table: bool,
             cluster_abundance_table: bool,
+            verify_times: bool,
             **kwargs):
     """ Cluster unique reads from one mask dataset. """
     # Check if the cluster report file already exists.
@@ -147,13 +148,14 @@ def cluster(mask_report_file: Path, *,
     if need_write(cluster_report_file, force):
         began = datetime.now()
         # Load the unique reads.
-        dataset = load_mask_dataset(mask_report_file)
-        tmp_clust_dir = path.buildpar(*path.SECT_DIR_SEGS,
+        dataset = load_mask_dataset(mask_report_file,
+                                    verify_times=verify_times)
+        tmp_clust_dir = path.buildpar(*path.REG_DIR_SEGS,
                                       top=tmp_dir,
                                       cmd=path.CMD_CLUST_DIR,
                                       sample=dataset.sample,
                                       ref=dataset.ref,
-                                      sect=dataset.sect)
+                                      reg=dataset.region.name)
         if dataset.min_mut_gap != 3:
             logger.warning("For clustering, it is highly recommended to use "
                            "the observer bias correction with min_mut_gap=3, "
@@ -221,18 +223,19 @@ def cluster(mask_report_file: Path, *,
                                              **kwargs)
         report_saved = report.save(tmp_dir)
         release_to_out(dataset.top, tmp_dir, report_saved.parent)
-    # Write the tables if they do not exist.
-    ClusterDatasetTabulator(
-        dataset=ClusterMutsDataset(cluster_report_file),
-        count_pos=cluster_pos_table,
-        count_read=False,
-        max_procs=n_procs,
-    ).write_tables(pos=cluster_pos_table, clust=cluster_abundance_table)
+        # Write the tables.
+        ClusterDatasetTabulator(
+            dataset=ClusterMutsDataset(cluster_report_file,
+                                       verify_times=verify_times),
+            count_pos=cluster_pos_table,
+            count_read=False,
+            max_procs=n_procs,
+        ).write_tables(pos=cluster_pos_table, clust=cluster_abundance_table)
     return cluster_report_file.parent
 
 ########################################################################
 #                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
 #                                                                      #
 # This file is part of SEISMIC-RNA.                                    #
 #                                                                      #

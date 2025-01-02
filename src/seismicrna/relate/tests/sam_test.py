@@ -38,12 +38,14 @@ def delete_sam(sam_file: Path):
 
 class TestIterRecordsPaired(ut.TestCase):
 
-    def run_test_valid(self, lines: list[str], expect: list[tuple[str, str]]):
+    def run_test_valid(self,
+                       lines: list[str],
+                       expect: list[tuple[str, str, str]]):
         text = "\n".join(lines)
         sam_file = write_sam(text)
         try:
-            result = [(rec1.rstrip(), rec2.rstrip())
-                      for rec1, rec2
+            result = [(name, rec1.rstrip(), rec2.rstrip())
+                      for name, rec1, rec2
                       in _iter_records_paired(sam_file, 0, len(text))]
             self.assertEqual(result, expect)
         except Exception:
@@ -77,7 +79,7 @@ class TestIterRecordsPaired(ut.TestCase):
 
     def test_one_improper(self):
         lines = ["read1\t1\ta"]
-        expect = [("read1\t1\ta", "read1\t1\ta")]
+        expect = [("read1", "read1\t1\ta", "read1\t1\ta")]
         self.run_test_valid(lines, expect)
 
     def test_one_proper(self):
@@ -89,14 +91,14 @@ class TestIterRecordsPaired(ut.TestCase):
     def test_two_mated_improper(self):
         lines = ["read1\t1\ta",
                  "read1\t1\tb"]
-        expect = [("read1\t1\ta", "read1\t1\ta"),
-                  ("read1\t1\tb", "read1\t1\tb")]
+        expect = [("read1", "read1\t1\ta", "read1\t1\ta"),
+                  ("read1", "read1\t1\tb", "read1\t1\tb")]
         self.run_test_valid(lines, expect)
 
     def test_two_mated_proper(self):
         lines = ["read1\t3\ta",
                  "read1\t3\tb"]
-        expect = [("read1\t3\ta", "read1\t3\tb")]
+        expect = [("read1", "read1\t3\ta", "read1\t3\tb")]
         self.run_test_valid(lines, expect)
 
     def test_two_mated_improper_1(self):
@@ -123,10 +125,31 @@ class TestIterRecordsPaired(ut.TestCase):
     def test_two_unmated_improper(self):
         lines = ["read1\t1\ta",
                  "read2\t1\tb"]
-        expect = [("read1\t1\ta", "read1\t1\ta"),
-                  ("read2\t1\tb", "read2\t1\tb")]
+        expect = [("read1", "read1\t1\ta", "read1\t1\ta"),
+                  ("read2", "read2\t1\tb", "read2\t1\tb")]
         self.run_test_valid(lines, expect)
 
 
 if __name__ == "__main__":
     ut.main()
+
+########################################################################
+#                                                                      #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
+#                                                                      #
+# This file is part of SEISMIC-RNA.                                    #
+#                                                                      #
+# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
+# it under the terms of the GNU General Public License as published by #
+# the Free Software Foundation; either version 3 of the License, or    #
+# (at your option) any later version.                                  #
+#                                                                      #
+# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
+# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
+# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
+# Public License for more details.                                     #
+#                                                                      #
+# You should have received a copy of the GNU General Public License    #
+# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
+#                                                                      #
+########################################################################

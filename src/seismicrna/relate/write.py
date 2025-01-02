@@ -2,12 +2,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
-from .data import RelateDataset
 from .io import from_reads, ReadNamesBatchIO, RelateBatchIO
-from .py.relate import find_rels_line
 from .report import RelateReport
 from .sam import XamViewer
-from .table import RelateCountTabulator, RelateDatasetTabulator
+from .table import RelateCountTabulator
 from ..core import path
 from ..core.io import RefseqIO
 from ..core.logs import logger
@@ -19,11 +17,46 @@ from ..core.tmp import get_release_working_dirs, release_to_out
 from ..core.write import need_write
 
 
-def relate_records(records: Iterable[tuple[str, str]], **kwargs):
-    for line1, line2 in records:
+def relate_records(records: Iterable[tuple[str, str, str]],
+                   ref: str,
+                   refseq: str,
+                   min_mapq: int,
+                   min_qual: int,
+                   insert3: bool,
+                   ambindel: bool,
+                   overhangs: bool,
+                   clip_end5: int,
+                   clip_end3: int,
+                   relate_cx: bool):
+    # Load the module.
+    if relate_cx:
+        # Load the C extension module.
         try:
-            yield find_rels_line(line1, line2, **kwargs)
-        except Exception as error:
+            from .cx.relate import RelateError, calc_rels_lines
+        except ImportError:
+            logger.warning(
+                "Failed to import the C extension for the relate algorithm; "
+                "defaulting to the Python version, which is much slower"
+            )
+            from .py.relate import RelateError, calc_rels_lines
+    else:
+        # Load the Python module.
+        from .py.relate import RelateError, calc_rels_lines
+    # Process the records.
+    for name, line1, line2 in records:
+        try:
+            yield name, calc_rels_lines(line1,
+                                        line2,
+                                        ref,
+                                        refseq,
+                                        min_mapq,
+                                        min_qual,
+                                        insert3,
+                                        ambindel,
+                                        overhangs,
+                                        clip_end5,
+                                        clip_end3)
+        except RelateError as error:
             logger.error(error)
 
 
@@ -42,7 +75,7 @@ def generate_batch(batch: int, *,
                    f"for batch {batch} of {xam_view}")
     names, relvecs = from_reads(relate_records(xam_view.iter_records(batch),
                                                ref=xam_view.ref,
-                                               refseq=refseq,
+                                               refseq=str(refseq),
                                                **kwargs),
                                 xam_view.sample,
                                 xam_view.ref,
@@ -108,7 +141,7 @@ class RelationWriter(object):
             kwargs = dict(xam_view=self._xam,
                           top=top,
                           refseq=self.refseq,
-                          min_qual=encode_phred(min_phred, phred_enc),
+                          min_qual=ord(encode_phred(min_phred, phred_enc)),
                           **kwargs)
             # Generate and write relation vectors for each batch.
             num_batches = len(self._xam.indexes)
@@ -142,17 +175,17 @@ class RelationWriter(object):
               release_dir: Path,
               min_mapq: int,
               min_reads: int,
-              brotli_level: int,
-              force: bool,
-              overhangs: bool,
               min_phred: int,
               phred_enc: int,
-              ambindel: bool,
               insert3: bool,
+              ambindel: bool,
+              overhangs: bool,
               clip_end5: int,
               clip_end3: int,
               relate_pos_table: bool,
               relate_read_table: bool,
+              brotli_level: int,
+              force: bool,
               n_procs: int,
               **kwargs):
         """ Compute a relation vector for every record in a BAM file,
@@ -172,20 +205,22 @@ class RelationWriter(object):
             # Compute relationships and time how long it takes.
             (batch_counts,
              n_batches,
-             checks) = self._generate_batches(top=release_dir,
-                                              brotli_level=brotli_level,
-                                              min_mapq=min_mapq,
-                                              overhangs=overhangs,
-                                              min_phred=min_phred,
-                                              phred_enc=phred_enc,
-                                              ambindel=ambindel,
-                                              insert3=insert3,
-                                              clip_end5=clip_end5,
-                                              clip_end3=clip_end3,
-                                              count_pos=relate_pos_table,
-                                              count_read=relate_read_table,
-                                              n_procs=n_procs,
-                                              **kwargs)
+             checks) = self._generate_batches(
+                top=release_dir,
+                brotli_level=brotli_level,
+                min_mapq=min_mapq,
+                min_phred=min_phred,
+                phred_enc=phred_enc,
+                insert3=insert3,
+                ambindel=ambindel,
+                overhangs=overhangs,
+                clip_end5=clip_end5,
+                clip_end3=clip_end3,
+                count_pos=relate_pos_table,
+                count_read=relate_read_table,
+                n_procs=n_procs,
+                **kwargs
+            )
             # Tabulate the data.
             tabulator = RelateCountTabulator(batch_counts=batch_counts,
                                              top=release_dir,
@@ -198,32 +233,26 @@ class RelationWriter(object):
             tabulator.write_tables(pos=relate_pos_table, read=relate_read_table)
             ended = datetime.now()
             # Write a report of the relation step.
-            report_saved = self._write_report(top=release_dir,
-                                              min_mapq=min_mapq,
-                                              min_phred=min_phred,
-                                              phred_enc=phred_enc,
-                                              overhangs=overhangs,
-                                              ambindel=ambindel,
-                                              insert3=insert3,
-                                              clip_end5=clip_end5,
-                                              clip_end3=clip_end3,
-                                              min_reads=min_reads,
-                                              n_reads_xam=self.num_reads,
-                                              n_reads_rel=tabulator.num_reads,
-                                              n_batches=n_batches,
-                                              checksums=checks,
-                                              refseq_checksum=refseq_checksum,
-                                              began=began,
-                                              ended=ended)
+            report_saved = self._write_report(
+                top=release_dir,
+                min_mapq=min_mapq,
+                min_phred=min_phred,
+                phred_enc=phred_enc,
+                insert3=insert3,
+                ambindel=ambindel,
+                overhangs=overhangs,
+                clip_end5=clip_end5,
+                clip_end3=clip_end3,
+                min_reads=min_reads,
+                n_reads_xam=self.num_reads,
+                n_reads_rel=tabulator.num_reads,
+                n_batches=n_batches,
+                checksums=checks,
+                refseq_checksum=refseq_checksum,
+                began=began,
+                ended=ended
+            )
             release_to_out(out_dir, release_dir, report_saved.parent)
-        else:
-            # Write the tables if they do not exist.
-            RelateDatasetTabulator(
-                dataset=RelateDataset(report_file),
-                count_pos=relate_pos_table,
-                count_read=relate_read_table,
-                max_procs=n_procs,
-            ).write_tables(pos=relate_pos_table, read=relate_read_table)
         return report_file.parent
 
     def __str__(self):
@@ -258,7 +287,7 @@ def write_all(xam_files: Iterable[Path],
 
 ########################################################################
 #                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
 #                                                                      #
 # This file is part of SEISMIC-RNA.                                    #
 #                                                                      #

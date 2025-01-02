@@ -14,18 +14,18 @@ cli_defaults = {param.name: param.default
                 if param.default is not None}
 
 extra_defaults = dict(fastp_adapter_fasta=None,
-                      mask_sections_file=None,
+                      mask_regions_file=None,
                       mask_pos_file=None,
                       mask_read_file=None,
                       join_clusts=None,
-                      fold_sections_file=None,
+                      fold_regions_file=None,
                       fold_constraint=None,
                       samples_meta=None,
                       refs_meta=None)
 
 ########################################################################
 #                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
 #                                                                      #
 # This file is part of SEISMIC-RNA.                                    #
 #                                                                      #

@@ -302,8 +302,8 @@ class TestBootstrapJackpotScores(ut.TestCase):
         run_sim_params(ct_file=(ct_file,),
                        pmut_paired=pmut_paired,
                        pmut_unpaired=pmut_unpaired,
-                       insert_fmean=0.5,
-                       end3_fmean=0.75,
+                       center_fmean=0.5,
+                       length_fmean=0.5,
                        clust_conc=2.)
         relate_report_file, = run_sim_relate(param_dir=(param_dir,),
                                              sample=self.SAMPLE,
@@ -371,3 +371,24 @@ class TestBootstrapJackpotScores(ut.TestCase):
 
 if __name__ == "__main__":
     ut.main()
+
+########################################################################
+#                                                                      #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
+#                                                                      #
+# This file is part of SEISMIC-RNA.                                    #
+#                                                                      #
+# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
+# it under the terms of the GNU General Public License as published by #
+# the Free Software Foundation; either version 3 of the License, or    #
+# (at your option) any later version.                                  #
+#                                                                      #
+# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
+# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
+# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
+# Public License for more details.                                     #
+#                                                                      #
+# You should have received a copy of the GNU General Public License    #
+# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
+#                                                                      #
+########################################################################

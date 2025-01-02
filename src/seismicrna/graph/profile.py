@@ -5,7 +5,7 @@ from functools import cached_property
 from click import command
 from plotly import graph_objects as go
 
-from .base import GraphWriter, PosGraphRunner
+from .table import TableGraphWriter, PosGraphRunner
 from .color import ColorMapGraph, RelColorMap, SeqColorMap
 from .onetable import OneTableGraph, OneTableRunner, OneTableWriter
 from .rel import MultiRelsGraph, OneRelGraph
@@ -87,7 +87,7 @@ class MultiRelsProfileGraph(MultiRelsGraph, ProfileGraph):
                 yield (row, 1), trace
 
 
-class ProfileWriter(OneTableWriter, GraphWriter):
+class ProfileWriter(OneTableWriter, TableGraphWriter):
 
     def get_graph(self, rels_group: str, **kwargs):
         return (OneRelProfileGraph(table=self.table,
@@ -113,7 +113,7 @@ def cli(*args, **kwargs):
 
 ########################################################################
 #                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
 #                                                                      #
 # This file is part of SEISMIC-RNA.                                    #
 #                                                                      #

@@ -2,10 +2,10 @@ from abc import ABC
 
 from .batch import MaskReadBatch
 from ..core import path
-from ..core.io import ReadBatchIO, SectIO
+from ..core.io import ReadBatchIO, RegIO
 
 
-class MaskIO(SectIO, ABC):
+class MaskIO(RegIO, ABC):
 
     @classmethod
     def auto_fields(cls):
@@ -20,7 +20,7 @@ class MaskBatchIO(ReadBatchIO, MaskIO, MaskReadBatch):
 
 ########################################################################
 #                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
 #                                                                      #
 # This file is part of SEISMIC-RNA.                                    #
 #                                                                      #

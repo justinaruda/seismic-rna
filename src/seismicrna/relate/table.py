@@ -10,7 +10,7 @@ from .report import RelateReport
 from ..core import path
 from ..core.header import RelHeader, parse_header
 from ..core.logs import logger
-from ..core.seq import FULL_NAME, DNA, Section
+from ..core.seq import FULL_NAME, DNA, Region
 from ..core.table import (Table,
                           Tabulator,
                           DatasetTabulator,
@@ -63,7 +63,7 @@ class RelateTable(AvgTable, ABC):
 class RelatePositionTable(RelateTable, FullPositionTable, ABC):
 
     def _iter_profiles(self, *,
-                       sections: Iterable[Section] | None,
+                       regions: Iterable[Region] | None,
                        quantile: float,
                        rel: str,
                        k: int | None,
@@ -93,8 +93,8 @@ class FullTabulator(Tabulator, ABC):
 
     def __init__(self, *, ref: str, refseq: DNA, **kwargs):
         # For a full tabulator, the full reference sequence must be used
-        # as the section.
-        super().__init__(section=Section(ref, refseq), **kwargs)
+        # as the region.
+        super().__init__(region=Region(ref, refseq), **kwargs)
 
 
 class AverageTabulator(Tabulator, ABC):
@@ -149,7 +149,7 @@ class TableLoader(Table, ABC):
         self._out_dir = fields[path.TOP]
         self._sample = fields[path.SAMP]
         self._ref = fields[path.REF]
-        self._sect = fields.get(path.SECT, FULL_NAME)
+        self._reg = fields.get(path.REG, FULL_NAME)
         if not self.path.with_suffix(table_file.suffix).samefile(table_file):
             raise ValueError(f"{type(self).__name__} got path {table_file}, "
                              f"but expected {self.path}")
@@ -167,8 +167,8 @@ class TableLoader(Table, ABC):
         return self._ref
 
     @property
-    def sect(self) -> str:
-        return self._sect
+    def reg(self) -> str:
+        return self._reg
 
     @cached_property
     def refseq(self):
@@ -209,3 +209,24 @@ class RelatePositionTableLoader(PositionTableLoader, RelatePositionTable):
 
 class RelateReadTableLoader(ReadTableLoader, RelateReadTable):
     """ Load relate data indexed by read. """
+
+########################################################################
+#                                                                      #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
+#                                                                      #
+# This file is part of SEISMIC-RNA.                                    #
+#                                                                      #
+# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
+# it under the terms of the GNU General Public License as published by #
+# the Free Software Foundation; either version 3 of the License, or    #
+# (at your option) any later version.                                  #
+#                                                                      #
+# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
+# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
+# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
+# Public License for more details.                                     #
+#                                                                      #
+# You should have received a copy of the GNU General Public License    #
+# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
+#                                                                      #
+########################################################################

@@ -2,30 +2,23 @@ from abc import ABC, abstractmethod
 from functools import cached_property
 from itertools import chain
 
-from .base import (GraphBase,
-                   GraphRunner,
-                   GraphWriter,
-                   cgroup_table,
+from .base import (cgroup_table,
                    get_action_name,
-                   make_tracks,
-                   make_path_subject,
-                   make_title_action_sample)
+                   make_tracks)
+from .onesource import OneSourceGraph
+from .table import TableGraph, TableGraphRunner, TableGraphWriter
 from ..core.table import Table, PositionTable
 from ..core.task import dispatch
 from ..core.header import K_CLUST_KEY
 
 
-class OneTableGraph(GraphBase, ABC):
+class OneTableGraph(TableGraph, OneSourceGraph, ABC):
     """ Graph of data from one Table. """
 
     def __init__(self, *,
                  table: Table | PositionTable,
-                 k: int | None = None,
-                 clust: int | None = None,
                  **kwargs):
         self.table = table
-        self.k = k
-        self.clust = clust
         self.k_clust_list = kwargs.pop(K_CLUST_KEY, None)
         super().__init__(**kwargs)
 
@@ -42,8 +35,8 @@ class OneTableGraph(GraphBase, ABC):
         return self.table.ref
 
     @property
-    def sect(self):
-        return self.table.sect
+    def reg(self):
+        return self.table.reg
 
     @property
     def seq(self):
@@ -51,30 +44,14 @@ class OneTableGraph(GraphBase, ABC):
 
     @cached_property
     def action(self):
-        """ Action that generated the data. """
         return get_action_name(self.table)
 
     @cached_property
     def row_tracks(self):
-        return make_tracks(self.table.header,
-                           self.k,
-                           self.clust,
-                           k_clust_list=self.k_clust_list)
-
-    @property
-    def col_tracks(self):
-        return None
-
-    @cached_property
-    def path_subject(self):
-        return make_path_subject(self.action, self.k, self.clust)
-
-    @cached_property
-    def title_action_sample(self):
-        return make_title_action_sample(self.action, self.sample)
+        return make_tracks(self.table, self.k, self.clust, k_clust_list=self.k_clust_list)
 
 
-class OneTableWriter(GraphWriter, ABC):
+class OneTableWriter(TableGraphWriter, ABC):
 
     def __init__(self, table: Table):
         super().__init__(table)
@@ -97,7 +74,7 @@ class OneTableWriter(GraphWriter, ABC):
                 yield self.get_graph(rels_group, **kwargs | cparams)
 
 
-class OneTableRunner(GraphRunner, ABC):
+class OneTableRunner(TableGraphRunner, ABC):
 
     @classmethod
     def run(cls,
@@ -107,7 +84,7 @@ class OneTableRunner(GraphRunner, ABC):
         # Generate a table writer for each table.
         writer_type = cls.get_writer_type()
         writers = [writer_type(table_file)
-                   for table_file in cls.list_table_files(input_path)]
+                   for table_file in cls.list_input_files(input_path)]
         return list(chain(*dispatch([writer.write for writer in writers],
                                     max_procs,
                                     pass_n_procs=False,
@@ -115,7 +92,7 @@ class OneTableRunner(GraphRunner, ABC):
 
 ########################################################################
 #                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
 #                                                                      #
 # This file is part of SEISMIC-RNA.                                    #
 #                                                                      #

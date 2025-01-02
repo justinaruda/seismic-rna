@@ -21,6 +21,10 @@ DECONVOLVE_PREFIX = "deconvolve"
 # Header selection keys
 K_CLUST_KEY = "k_clust_list"
 
+# No-cluster lists
+NO_KS = [0]
+NO_CLUSTS = [(0, 0)]
+
 
 def validate_k_clust(k: int, clust: int):
     """ Validate a pair of k and cluster numbers.
@@ -277,8 +281,8 @@ class Header(ABC):
         selected = np.ones(index.size, dtype=bool)
         # Handle combinations of k and clust specified in a list of tuples.
         if value := kwargs.pop(K_CLUST_KEY, None):
-            assert isinstance(value, list),\
-            f"{K_CLUST_KEY} must be a list of tuples."
+            if not isinstance(value, list):
+                raise TypeError(f"{K_CLUST_KEY} must be a list of tuples")
             k_name = self.levels().get('k')
             clust_name = self.levels().get('clust')
             combo_selected = np.zeros(index.size, dtype=bool)
@@ -386,11 +390,11 @@ class RelHeader(Header):
 
     @property
     def ks(self):
-        return [0]
+        return NO_KS
 
     @property
     def clusts(self):
-        return [(0, 0)]
+        return NO_CLUSTS
 
     @cached_property
     def signature(self):
@@ -533,7 +537,7 @@ def parse_header(index: pd.Index | pd.MultiIndex):
 
 ########################################################################
 #                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
 #                                                                      #
 # This file is part of SEISMIC-RNA.                                    #
 #                                                                      #

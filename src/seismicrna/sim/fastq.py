@@ -259,12 +259,12 @@ def from_report(report_file: Path, *,
     rdata = RelateDataset(report_file)
     ndata = ReadNamesDataset(report_file)
     sim_dir = _get_common_attr(rdata, ndata, "top")
-    section = rdata.section
+    region = rdata.region
     batches = zip(rdata.iter_batches(), ndata.iter_batches())
     return generate_fastq(sim_dir,
                           sample,
-                          section.ref,
-                          section.seq,
+                          region.ref,
+                          region.seq,
                           rdata.paired,
                           read_length,
                           batches,
@@ -284,9 +284,9 @@ def from_param_dir(param_dir: Path, *,
                    **kwargs):
     """ Simulate a FASTQ file from parameter files. """
     sim_dir, _, _ = get_param_dir_fields(param_dir)
-    section, pmut, u5s, u3s, pends, pclust = load_param_dir(param_dir, profile)
+    region, pmut, u5s, u3s, pends, pclust = load_param_dir(param_dir, profile)
     batches = simulate_batches(sample=sample,
-                               ref=section.ref,
+                               ref=region.ref,
                                pmut=pmut,
                                uniq_end5s=u5s,
                                uniq_end3s=u3s,
@@ -299,8 +299,8 @@ def from_param_dir(param_dir: Path, *,
                                **kwargs)
     return generate_fastq(sim_dir.joinpath(path.SIM_SAMPLES_DIR),
                           sample,
-                          section.ref,
-                          section.seq,
+                          region.ref,
+                          region.seq,
                           paired,
                           read_length,
                           batches,
@@ -375,3 +375,24 @@ params = [arg_input_path,
 def cli(*args, **kwargs):
     """ Simulate a FASTQ file. """
     run(*args, **kwargs)
+
+########################################################################
+#                                                                      #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
+#                                                                      #
+# This file is part of SEISMIC-RNA.                                    #
+#                                                                      #
+# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
+# it under the terms of the GNU General Public License as published by #
+# the Free Software Foundation; either version 3 of the License, or    #
+# (at your option) any later version.                                  #
+#                                                                      #
+# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
+# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
+# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
+# Public License for more details.                                     #
+#                                                                      #
+# You should have received a copy of the GNU General Public License    #
+# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
+#                                                                      #
+########################################################################

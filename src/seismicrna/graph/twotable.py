@@ -8,15 +8,16 @@ from typing import Any, Callable, Iterable
 import pandas as pd
 
 from .base import (LINKER,
-                   GraphRunner,
-                   GraphWriter,
                    cgroup_table,
                    get_action_name,
                    make_tracks,
                    make_title_action_sample,
-                   make_path_subject,
-                   load_pos_tables)
+                   make_path_subject)
 from .rel import OneRelGraph
+from .table import (TableGraph,
+                    TableGraphRunner,
+                    TableGraphWriter,
+                    load_pos_tables)
 from ..cluster.table import ClusterTable
 from ..core.arg import opt_comppair, opt_compself, opt_out_dir
 from ..core.logs import logger
@@ -29,7 +30,7 @@ ROW_NAME = "Row"
 COL_NAME = "Column"
 
 
-class TwoTableGraph(OneRelGraph, ABC):
+class TwoTableGraph(TableGraph, OneRelGraph, ABC):
     """ Graph of two Tables. """
 
     def __init__(self, *,
@@ -83,8 +84,8 @@ class TwoTableGraph(OneRelGraph, ABC):
         return self._get_common_attribute("ref")
 
     @cached_property
-    def sect(self):
-        return self._get_common_attribute("sect")
+    def reg(self):
+        return self._get_common_attribute("reg")
 
     @cached_property
     def seq(self):
@@ -152,11 +153,11 @@ class TwoTableGraph(OneRelGraph, ABC):
 
     @cached_property
     def row_tracks(self):
-        return make_tracks(self.table2.header, self.k2, self.clust2)
+        return make_tracks(self.table2, self.k2, self.clust2)
 
     @cached_property
     def col_tracks(self):
-        return make_tracks(self.table1.header, self.k1, self.clust1)
+        return make_tracks(self.table1, self.k1, self.clust1)
 
 
 class TwoTableMergedGraph(TwoTableGraph, ABC):
@@ -200,7 +201,7 @@ class TwoTableMergedGraph(TwoTableGraph, ABC):
                 yield (row, col), trace
 
 
-class TwoTableWriter(GraphWriter, ABC):
+class TwoTableWriter(TableGraphWriter, ABC):
     """ Write the proper types of graphs for two given tables. """
 
     @classmethod
@@ -240,26 +241,26 @@ class TwoTableWriter(GraphWriter, ABC):
 
 
 def iter_table_pairs(tables: Iterable[Table]):
-    """ Yield every pair of tables whose reference and section match. """
+    """ Yield every pair of tables whose reference and region match. """
     tables = list(tables)
-    # Group the tables by reference and section.
+    # Group the tables by reference and region.
     table_groups = defaultdict(list)
     for table in tables:
-        key = table.ref, table.sect
+        key = table.ref, table.reg
         if table in table_groups[key]:
             logger.warning(f"Duplicate table: {table}")
         else:
             table_groups[key].append(table)
     # Yield every pair of tables from each group.
-    for (ref, sect), tables in table_groups.items():
+    for (ref, reg), tables in table_groups.items():
         n_files = len(tables)
         n_pairs = n_files * (n_files - 1) // 2
         logger.detail(f"Found {n_files} table files ({n_pairs} pairs) "
-                      f"with reference {repr(ref)} and section {repr(sect)}")
+                      f"with reference {repr(ref)} and region {repr(reg)}")
         yield from combinations(tables, 2)
 
 
-class TwoTableRunner(GraphRunner, ABC):
+class TwoTableRunner(TableGraphRunner, ABC):
 
     @classmethod
     @abstractmethod
@@ -297,7 +298,7 @@ class TwoTableRunner(GraphRunner, ABC):
 
 ########################################################################
 #                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
 #                                                                      #
 # This file is part of SEISMIC-RNA.                                    #
 #                                                                      #

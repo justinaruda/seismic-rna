@@ -15,8 +15,8 @@ from ..core.arg import (CMD_REL,
                         opt_batch_size,
                         opt_phred_enc,
                         opt_min_phred,
-                        opt_ambindel,
                         opt_insert3,
+                        opt_ambindel,
                         opt_overhangs,
                         opt_clip_end5,
                         opt_clip_end3,
@@ -25,6 +25,7 @@ from ..core.arg import (CMD_REL,
                         opt_rev_label,
                         opt_relate_pos_table,
                         opt_relate_read_table,
+                        opt_relate_cx,
                         opt_max_procs,
                         opt_force,
                         opt_keep_tmp)
@@ -42,14 +43,15 @@ def run(fasta: str,
         min_phred: int,
         batch_size: int,
         insert3: bool,
-        overhangs: bool,
         ambindel: bool,
+        overhangs: bool,
         clip_end5: int,
         clip_end3: int,
         sep_strands: bool,
         rev_label: str,
         relate_pos_table: bool,
         relate_read_table: bool,
+        relate_cx: bool,
         max_procs: int,
         brotli_level: int,
         force: bool,
@@ -74,13 +76,14 @@ def run(fasta: str,
                      phred_enc=phred_enc,
                      min_phred=min_phred,
                      insert3=insert3,
-                     overhangs=overhangs,
                      ambindel=ambindel,
+                     overhangs=overhangs,
                      clip_end5=clip_end5,
                      clip_end3=clip_end3,
                      batch_size=batch_size,
                      relate_pos_table=relate_pos_table,
                      relate_read_table=relate_read_table,
+                     relate_cx=relate_cx,
                      max_procs=max_procs,
                      brotli_level=brotli_level,
                      force=force,
@@ -105,14 +108,16 @@ params = [
     opt_min_reads,
     opt_batch_size,
     opt_insert3,
-    opt_overhangs,
     opt_ambindel,
+    opt_overhangs,
     opt_clip_end5,
     opt_clip_end3,
     opt_brotli_level,
     # Table options
     opt_relate_pos_table,
     opt_relate_read_table,
+    # Source options
+    opt_relate_cx,
     # Parallelization
     opt_max_procs,
     # File generation
@@ -128,7 +133,7 @@ def cli(**kwargs):
 
 ########################################################################
 #                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
 #                                                                      #
 # This file is part of SEISMIC-RNA.                                    #
 #                                                                      #

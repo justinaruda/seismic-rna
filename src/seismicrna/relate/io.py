@@ -8,7 +8,7 @@ from .batch import ReadNamesBatch, RelateBatch
 from ..core import path
 from ..core.io import MutsBatchIO, ReadBatchIO, RefIO
 from ..core.logs import logger
-from ..core.seq import DNA, Section
+from ..core.seq import DNA, Region
 from ..core.types import fit_uint_type
 
 
@@ -44,7 +44,9 @@ class RelateBatchIO(MutsBatchIO, RelateIO, RelateBatch):
         return path.RelateBatSeg
 
 
-def from_reads(reads: Iterable[tuple[str, tuple[list[int], [list[int]]], dict[int, int]]],
+def from_reads(reads: Iterable[tuple[str,
+                                     tuple[tuple[list[int], list[int]],
+                                           dict[int, int]]]],
                sample: str,
                ref: str,
                refseq: DNA,
@@ -56,7 +58,7 @@ def from_reads(reads: Iterable[tuple[str, tuple[list[int], [list[int]]], dict[in
     seg_end3s = list()
     muts = {pos: defaultdict(list) for pos in range(1, len(refseq) + 1)}
     # Collect the mutation data from the reads.
-    for (name, (end5s, end3s), poss) in reads:
+    for (name, ((end5s, end3s), poss)) in reads:
         if all(end5 > end3 for end5, end3 in zip(end5s, end3s, strict=True)):
             # Skip a read if no segment has any coverage.
             logger.warning(f"Skipped read {repr(name)} with 5' end(s) {end5s} "
@@ -85,7 +87,7 @@ def from_reads(reads: Iterable[tuple[str, tuple[list[int], [list[int]]], dict[in
                                   names=names)
     rel_batch = RelateBatchIO(sample=sample,
                               batch=batch,
-                              section=Section(ref, refseq),
+                              region=Region(ref, refseq),
                               seg_end5s=seg_end5s,
                               seg_end3s=seg_end3s,
                               muts=muts)
@@ -93,7 +95,7 @@ def from_reads(reads: Iterable[tuple[str, tuple[list[int], [list[int]]], dict[in
 
 ########################################################################
 #                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
 #                                                                      #
 # This file is part of SEISMIC-RNA.                                    #
 #                                                                      #

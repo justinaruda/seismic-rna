@@ -5,7 +5,7 @@ from shutil import rmtree
 from typing import Iterable
 
 from seismicrna.core import path
-from seismicrna.core.batch.muts import SectionMutsBatch
+from seismicrna.core.batch.muts import RegionMutsBatch
 from seismicrna.core.io.seq import RefseqIO
 from seismicrna.core.logs import Level, set_config
 from seismicrna.core.ngs.xam import SAM_DELIM
@@ -81,7 +81,7 @@ def write_fasta_file(out_dir: Path):
     return fasta_file
 
 
-def extract_batches(batches: Iterable[SectionMutsBatch]):
+def extract_batches(batches: Iterable[RegionMutsBatch]):
     batches = list(batches)
     read_nums = [list(batch.read_nums) for batch in batches]
     seg_end5s = [batch.seg_end5s.tolist() for batch in batches]
@@ -192,13 +192,6 @@ class TestRelateSingle(TestRelate):
                                "Insufficient reads in alignment map",
                                self.batches,
                                min_reads=5)
-
-    def test_min_mapq(self):
-        self.assertRaisesRegex(ValueError,
-                               "Read 'Read1' mapped with quality score 6, "
-                               "less than the minimum of 7",
-                               self.batches,
-                               min_mapq=7)
 
     def test_min_phred(self):
         read_nums, seg_end5s, seg_end3s, muts = self.batches(min_phred=40)
@@ -332,13 +325,6 @@ class TestRelatePaired(TestRelate):
                                "Insufficient reads in alignment map",
                                self.batches,
                                min_reads=7)
-
-    def test_min_mapq(self):
-        self.assertRaisesRegex(ValueError,
-                               "Read 'Read3' mapped with quality score 5, "
-                               "less than the minimum of 6",
-                               self.batches,
-                               min_mapq=6)
 
     def test_min_phred(self):
         read_nums, seg_end5s, seg_end3s, muts = self.batches(min_phred=40)
@@ -527,3 +513,24 @@ class TestRelatePaired(TestRelate):
 
 if __name__ == "__main__":
     ut.main()
+
+########################################################################
+#                                                                      #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
+#                                                                      #
+# This file is part of SEISMIC-RNA.                                    #
+#                                                                      #
+# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
+# it under the terms of the GNU General Public License as published by #
+# the Free Software Foundation; either version 3 of the License, or    #
+# (at your option) any later version.                                  #
+#                                                                      #
+# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
+# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
+# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
+# Public License for more details.                                     #
+#                                                                      #
+# You should have received a copy of the GNU General Public License    #
+# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
+#                                                                      #
+########################################################################

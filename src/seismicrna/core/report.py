@@ -48,8 +48,8 @@ from .arg import (opt_phred_enc,
                   opt_rev_label,
                   opt_min_reads,
                   opt_min_mapq,
-                  opt_ambindel,
                   opt_insert3,
+                  opt_ambindel,
                   opt_overhangs,
                   opt_clip_end5,
                   opt_clip_end3,
@@ -271,9 +271,9 @@ VersionF = Field("version", "Version of SEISMIC-RNA", str, __version__)
 BranchesF = Field("branches", "Branches", list, list())
 SampleF = Field("sample", "Sample", str)
 RefF = Field("ref", "Reference", str)
-SectF = Field("sect", "Section", str)
-End5F = Field("end5", "Section 5' end", int)
-End3F = Field("end3", "Section 3' end", int)
+RegF = Field("reg", "Region", str)
+End5F = Field("end5", "Region 5' end", int)
+End3F = Field("end3", "Region 3' end", int)
 MinReadsF = OptionField(opt_min_reads)
 TimeBeganF = Field("began",
                    "Time began",
@@ -355,8 +355,8 @@ ChecksumsF = Field("checksums", "MD5 checksums of batches", dict)
 RefseqChecksumF = Field("refseq_checksum",
                         "MD5 checksum of reference sequence",
                         str)
-AmbindelF = OptionField(opt_ambindel)
 Insert3F = OptionField(opt_insert3)
+AmbindelF = OptionField(opt_ambindel)
 OverhangsF = OptionField(opt_overhangs)
 MinPhredF = OptionField(opt_min_phred)
 ClipEnd5F = OptionField(opt_clip_end5)
@@ -410,7 +410,7 @@ PosCutListF = Field("pos_list",
                     iconv=iconv_array_int,
                     oconv=get_oconv_list(int))
 PosCutLoInfoF = Field("pos_min_ninfo",
-                      "Positions with too few unambiguous base calls",
+                      "Positions with too few informative base calls",
                       np.ndarray,
                       iconv=iconv_array_int,
                       oconv=get_oconv_list(int))
@@ -425,7 +425,7 @@ PosKeptF = Field("pos_kept",
                  iconv=iconv_array_int,
                  oconv=get_oconv_list(int))
 NumPosInitF = Field("n_pos_init",
-                    "Total number of positions in the section",
+                    "Total number of positions in the region",
                     int)
 NumPosCutPolyAF = Field("n_pos_polya",
                         "Number of positions in stretches of consecutive A "
@@ -438,7 +438,7 @@ NumPosCutListF = Field("n_pos_list",
                        "Number of positions masked from a list",
                        int)
 NumPosCutLoInfoF = Field("n_pos_min_ninfo",
-                         "Number of positions with too few unambiguous base "
+                         "Number of positions with too few informative base "
                          "calls",
                          int)
 NumPosCutHiMutF = Field("n_pos_max_fmut",
@@ -452,16 +452,16 @@ NumReadsInitF = Field("n_reads_init",
                       int)
 NumReadCutListF = Field("n_reads_list",
                         "Number of reads masked from a list",
-                        int, 0)
+                        int)
 NumReadsLoNCovF = Field("n_reads_min_ncov",
                         "Number of reads with too few bases covering the "
-                        "section",
+                        "region",
                         int)
 NumDiscontigF = Field("n_reads_discontig",
                       "Number of reads with discontiguous mates",
                       int)
 NumReadsLoInfoF = Field("n_reads_min_finfo",
-                        "Number of reads with too few unambiguous base calls",
+                        "Number of reads with too few informative base calls",
                         int)
 NumReadsHiMutF = Field("n_reads_max_fmut",
                        "Number of reads with too many mutations",
@@ -510,7 +510,7 @@ BestKF = Field("best_k", "Best number of clusters", int)
 
 # Join fields
 
-JoinedSectionsF = Field("joined_sections", "Joined sections", list)
+JoinedRegionsF = Field("joined_regions", "Joined regions", list)
 JoinedClustersF = Field("joined_clusters",
                         "Joined clusters",
                         dict,
@@ -813,7 +813,7 @@ class BatchedRefseqReport(BatchedReport, RefseqReport, ABC):
 
 ########################################################################
 #                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
 #                                                                      #
 # This file is part of SEISMIC-RNA.                                    #
 #                                                                      #

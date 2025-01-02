@@ -1,17 +1,9 @@
-class RelateError(Exception):
-    """ Any error that occurs during relating. """
-
-
-class RelateValueError(RelateError, ValueError):
-    """ Any ValueError that occurs during relating. """
-
-
-class RelateNotImplementedError(RelateError, NotImplementedError):
-    """ Any NotImplementedError that occurs during relating. """
+class RelateError(RuntimeError):
+    """ Any error that occurs during the relate algorithm. """
 
 ########################################################################
 #                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
+# © Copyright 2022-2025, the Rouskin Lab.                              #
 #                                                                      #
 # This file is part of SEISMIC-RNA.                                    #
 #                                                                      #
