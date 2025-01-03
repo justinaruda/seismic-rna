@@ -114,7 +114,7 @@ class DeconvolvePositionTable(DeconvolveTable, PartialPositionTable, ABC):
                     seq_list = list(prof_section.seq)
                     for position in positions:
                         position -= section.end5
-                        seq_list[position-1] = "G" #HARDCODED
+                        seq_list[position] = "G" #HARDCODED
                     prof_section.seq = DNA("".join(seq_list))
                     prof_section.mask_gu()
                     self.section.mask_gu() #HARDCODED
