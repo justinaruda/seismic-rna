@@ -41,7 +41,7 @@ from ..core.seq import DNA, BASEA, BASEC, BASEG, BASET, BASEN
 from ..core.task import as_list_of_tuples, dispatch
 from ..core.write import need_write, write_mode
 from ..relate.batch import ReadNamesBatch, RelateBatch
-from ..relate.data import ReadNamesDataset, RelateDataset, load_relate_dataset
+from ..relate.dataset import ReadNamesDataset, RelateMutsDataset, load_relate_dataset
 from ..relate.report import RelateReport
 from ..relate.sim import simulate_batches
 
@@ -256,7 +256,7 @@ def from_report(report_file: Path, *,
     """ Simulate a FASTQ file from a Relate report. """
     report = RelateReport.load(report_file)
     sample = report.get_field(SampleF)
-    rdata = RelateDataset(report_file)
+    rdata = RelateMutsDataset(report_file)
     ndata = ReadNamesDataset(report_file)
     sim_dir = _get_common_attr(rdata, ndata, "top")
     region = rdata.region
@@ -311,8 +311,8 @@ def from_param_dir(param_dir: Path, *,
 
 @run_func(COMMAND)
 def run(*,
-        input_path: tuple[str, ...],
-        param_dir: tuple[str, ...],
+        input_path: Iterable[str | Path],
+        param_dir: Iterable[str | Path],
         profile_name: str,
         sample: str,
         paired_end: bool,
@@ -375,24 +375,3 @@ params = [arg_input_path,
 def cli(*args, **kwargs):
     """ Simulate a FASTQ file. """
     run(*args, **kwargs)
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

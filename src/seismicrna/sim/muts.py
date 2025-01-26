@@ -1,7 +1,7 @@
 import os
 from itertools import chain
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import numpy as np
 import pandas as pd
@@ -15,7 +15,7 @@ from ..core.arg import (opt_ct_file,
                         opt_vmut_unpaired,
                         opt_force,
                         opt_max_procs)
-from ..core.header import RelClustHeader, make_header, list_clusts
+from ..core.header import RelClustHeader, list_clusts, make_header, parse_header
 from ..core.rel import (MATCH,
                         NOCOV,
                         DELET,
@@ -28,7 +28,8 @@ from ..core.rel import (MATCH,
                         ANY_H,
                         ANY_V,
                         ANY_N,
-                        REL_TYPE)
+                        REL_TYPE,
+                        RelPattern)
 from ..core.rna import UNPAIRED, find_enclosing_pairs, from_ct
 from ..core.run import run_func
 from ..core.seq import (BASE_NAME,
@@ -291,14 +292,14 @@ def sim_pmut(positions: pd.Index,
     return pmut
 
 
-def _make_pmut_means_kwargs(pmut: tuple[tuple[str, float], ...]):
+def _make_pmut_means_kwargs(pmut: Iterable[tuple[str, float]]):
     """ Make keyword arguments for `make_pmut_means`. """
     return {f"p{mut}": p for mut, p in pmut}
 
 
 def run_struct(ct_file: Path,
-               pmut_paired: tuple[tuple[str, float], ...],
-               pmut_unpaired: tuple[tuple[str, float], ...],
+               pmut_paired: Iterable[tuple[str, float]],
+               pmut_unpaired: Iterable[tuple[str, float]],
                vmut_paired: float,
                vmut_unpaired: float,
                force: bool):
@@ -373,11 +374,27 @@ def load_pmut(pmut_file: Path):
     return pmut
 
 
+def calc_pmut_pattern(pmut: pd.DataFrame, pattern: RelPattern):
+    """ Calculate the rate of a given type of mutation. """
+    header = parse_header(pmut.columns)
+    rels = list(map(int, header.get_rel_header().index))
+    # Accumulate the frequencies of all selected mutations.
+    fmut = pd.DataFrame(0., pmut.index, header.get_clust_header().index)
+    for base in DNA.alph():
+        positions = fmut.index[fmut.index.get_level_values(BASE_NAME) == base]
+        for rel in rels:
+            if all(pattern.fits(base, rel)):
+                fmut.loc[positions] += pmut.loc[positions, rel]
+    # Divide the frequency of mutations by the frequency of mutations plus
+    # matches (i.e. informative bases) to calculate the mutation rate.
+    return fmut / (pmut.loc[:, MATCH] + fmut)
+
+
 @run_func(COMMAND)
 def run(*,
-        ct_file: tuple[str, ...],
-        pmut_paired: tuple[tuple[str, float], ...],
-        pmut_unpaired: tuple[tuple[str, float], ...],
+        ct_file: Iterable[str | Path],
+        pmut_paired: Iterable[tuple[str, float]],
+        pmut_unpaired: Iterable[tuple[str, float]],
         vmut_paired: float,
         vmut_unpaired: float,
         force: bool,
@@ -409,24 +426,3 @@ params = [
 def cli(*args, **kwargs):
     """ Simulate the rate of each kind of mutation at each position. """
     run(*args, **kwargs)
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

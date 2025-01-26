@@ -132,6 +132,7 @@ def _calc_rels_read(read: SamRead,
                     min_qual: str,
                     insert3: bool,
                     ambindel: bool,
+                    ambindel_max_iter: int,
                     clip_end5: int,
                     clip_end3: int):
     """
@@ -147,6 +148,8 @@ def _calc_rels_read(read: SamRead,
         ASCII encoding of the minimum Phred score to accept a base call
     ambindel: bool
         Whether to find and label all ambiguous insertions and deletions
+    ambindel_max_iter: int
+        Maximum number of iterations for finding ambiguous indels
     insert3: bool
         Whether to mark an insertion on the base immediately 3' (True)
         or 5' (False) of the insertion.
@@ -347,7 +350,8 @@ def _calc_rels_read(read: SamRead,
                        ref_end5=read.pos,
                        ref_end3=ref_pos,
                        read_end5=read_end5,
-                       read_end3=read_end3)
+                       read_end3=read_end3,
+                       max_iter=ambindel_max_iter)
 
     # Clip bases from the 5' and 3' ends of the read.
     if clip_end5 < 0:
@@ -445,6 +449,7 @@ def calc_rels_lines(line1: str,
                     min_qual: int,
                     insert3: bool,
                     ambindel: bool,
+                    ambindel_max_iter: int,
                     overhangs: bool,
                     clip_end5: int = 0,
                     clip_end3: int = 0):
@@ -459,6 +464,7 @@ def calc_rels_lines(line1: str,
                                           chr(min_qual),
                                           insert3,
                                           ambindel,
+                                          ambindel_max_iter,
                                           clip_end5,
                                           clip_end3)
     if paired:
@@ -474,6 +480,7 @@ def calc_rels_lines(line1: str,
                                                   chr(min_qual),
                                                   insert3,
                                                   ambindel,
+                                                  ambindel_max_iter,
                                                   clip_end5,
                                                   clip_end3)
             # Determine which read (1 or 2) faces forward and reverse.
@@ -498,24 +505,3 @@ def calc_rels_lines(line1: str,
         ends = [end51], [end31]
         rels = rels1
     return ends, rels
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

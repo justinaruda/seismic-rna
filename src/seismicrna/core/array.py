@@ -231,7 +231,12 @@ def ensure_order(array1: np.ndarray,
         Shared length of `array1` and `array2`.
     """
     length = ensure_same_length(array1, array2, what1, what2)
-    ineq_func, ineq_sign = (np.less, "<") if gt_eq else (np.greater, ">")
+    if gt_eq:
+        ineq_func = np.less
+        ineq_sign = "<"
+    else:
+        ineq_func = np.greater
+        ineq_sign = ">"
     if np.any(is_err := ineq_func(array1, array2)):
         index = pd.Index(np.arange(length)[is_err])
         errors = pd.DataFrame.from_dict(
@@ -372,24 +377,3 @@ def triangular(n: int):
         of items in the equilateral triangle of side length `n`.
     """
     return (n * (n + 1)) // 2
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

@@ -28,10 +28,10 @@ class TestStochasticRound(ut.TestCase):
                         ))
 
     def test_float_arrays(self):
-        confidence = 0.9995
-        n_trials = 10000
+        confidence = 0.9999
+        n_trials = 50000
         floor = 8
-        for dims in [(), (0,), (1,), (2,), (100,), (10, 10)]:
+        for dims in [(), (0,), (1,), (2,), (25,), (5, 5)]:
             mantissas = rng.random(dims)
             values = floor + mantissas
             trials = [stochastic_round(values)
@@ -52,8 +52,8 @@ class TestStochasticRound(ut.TestCase):
             self.assertTrue(np.all(np.less_equal(n_floor, floor_ci_up)))
 
     def test_float_arrays_preserve_sum(self):
-        confidence = 0.9995
-        n_trials = 10000
+        confidence = 0.9999
+        n_trials = 50000
         floor = 8
         for dims in [(), (0,), (1,), (2,), (5,), (5, 5)]:
             mantissas = rng.random(dims)
@@ -91,24 +91,3 @@ class TestStochasticRound(ut.TestCase):
             n_floor = np.count_nonzero(sums == values_sum_floor)
             self.assertGreaterEqual(n_floor, floor_ci_lo)
             self.assertLessEqual(n_floor, floor_ci_up)
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

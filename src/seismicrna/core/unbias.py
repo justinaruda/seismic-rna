@@ -335,6 +335,27 @@ def _triu_dot(a: np.ndarray, b: np.ndarray):
     return dot
 
 
+def triu_dot(a: np.ndarray, b: np.ndarray):
+    """ Dot product of `a` and `b` over their first 2 dimensions.
+
+    Parameters
+    ----------
+    a: np.ndarray
+        Array 1.
+    b: np.ndarray
+        Array 2.
+
+    Returns
+    -------
+    np.ndarray
+        Dot product of `a` and `b` over their first 2 dimensions.
+    """
+    find_dims([(SIZE, SIZE, None), (SIZE, SIZE, None)],
+              [a, b],
+              ["a", "b"])
+    return _triu_dot(a, b)
+
+
 @jit()
 def _triu_allclose(a: np.ndarray,
                    b: np.ndarray,
@@ -1515,9 +1536,9 @@ def _calc_p_ends_observed(npos: int,
     npos: int
         Number of positions.
     end5s: np.ndarray
-        5' end coordinates of the reads: 1D array (reads)
+        5' ends (0-indexed) of the reads: 1D array (reads)
     end3s: np.ndarray
-        3' end coordinates of the reads: 1D array (reads)
+        3' ends (0-indexed) of the reads: 1D array (reads)
     weights: np.ndarray
         Number of times each read occurs in each cluster:
         2D array (reads x clusters)
@@ -1548,13 +1569,13 @@ def calc_p_ends_observed(npos: int,
     npos: int
         Number of positions.
     end5s: np.ndarray
-        5' end coordinates of the reads: 1D array (reads)
+        5' ends (0-indexed) of the reads: 1D array (reads)
     end3s: np.ndarray
-        3' end coordinates of the reads: 1D array (reads)
-    weights: np.ndarray | None = None
+        3' ends (0-indexed) of the reads: 1D array (reads)
+    weights: np.ndarray | None
         Number of times each read occurs in each cluster:
         2D array (reads x clusters)
-    check_values: bool = True
+    check_values: bool
         Check that `end5s`, `end3s`, and `weights` are all valid.
 
     Returns
@@ -1607,7 +1628,7 @@ def calc_p_ends_observed(npos: int,
             )
 
     # Call the compiled function.
-    return _calc_p_ends_observed(npos, end5s, end3s, weights)
+    return _triu_norm(_calc_p_ends_observed(npos, end5s, end3s, weights))
 
 
 def calc_n_reads_per_pos(p_ends_observed: np.ndarray,
@@ -1693,24 +1714,3 @@ def calc_params_observed(n_pos_total: int,
         # with 0.
         p_mut_observed = np.nan_to_num(n_muts_per_pos / n_reads_per_pos)
     return p_mut_observed, p_ends_observed, p_clust_observed
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

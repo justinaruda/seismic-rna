@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from typing import Iterable
 
 from click import command
@@ -23,23 +24,19 @@ from ..core.seq import DNA
 COMMAND = __name__.split(os.path.extsep)[-1]
 
 
-def as_tuple_str(items: Iterable):
-    return tuple(map(str, items))
-
-
 @run_func(COMMAND,
           default=None,
           extra_defaults=extra_defaults)
 def run(*,
-        sim_dir: str,
-        tmp_pfx: str,
+        sim_dir: str | Path,
+        tmp_pfx: str | Path,
         sample: str,
         refs: str,
         ref: str,
         reflen: int,
         profile_name: str,
-        fold_coords: tuple[tuple[str, int, int], ...],
-        fold_primers: tuple[tuple[str, DNA, DNA], ...],
+        fold_coords: Iterable[tuple[str, int, int]],
+        fold_primers: Iterable[tuple[str, DNA, DNA]],
         fold_regions_file: str | None,
         fold_constraint: str | None,
         fold_temp: float,
@@ -47,8 +44,8 @@ def run(*,
         fold_mfe: bool,
         fold_max: int,
         fold_percent: float,
-        pmut_paired: tuple[tuple[str, float], ...],
-        pmut_unpaired: tuple[tuple[str, float], ...],
+        pmut_paired: Iterable[tuple[str, float]],
+        pmut_unpaired: Iterable[tuple[str, float]],
         vmut_paired: float,
         vmut_unpaired: float,
         center_fmean: float,
@@ -73,7 +70,7 @@ def run(*,
         reflen=reflen,
         force=force)
     )
-    ct_file = as_tuple_str(fold_mod.run(
+    ct_file = fold_mod.run(
         fasta=fasta,
         sim_dir=sim_dir,
         tmp_pfx=tmp_pfx,
@@ -89,7 +86,7 @@ def run(*,
         fold_percent=fold_percent,
         keep_tmp=keep_tmp,
         force=force,
-        max_procs=max_procs)
+        max_procs=max_procs
     )
     params_mod.run(
         ct_file=ct_file,
@@ -105,10 +102,9 @@ def run(*,
         force=force,
         max_procs=max_procs
     )
-    param_dir = as_tuple_str(path.deduplicate(map(os.path.dirname, ct_file)))
     return fastq_mod.run(
         input_path=(),
-        param_dir=param_dir,
+        param_dir=path.deduplicate(f.parent for f in ct_file),
         profile_name=profile_name,
         sample=sample,
         paired_end=paired_end,
@@ -139,24 +135,3 @@ params = merge_params(fastq_mod.params,
 def cli(*args, **kwargs):
     """ Simulate FASTQ files from scratch. """
     return run(*args, **kwargs)
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

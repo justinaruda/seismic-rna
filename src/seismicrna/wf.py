@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Iterable
 
 from click import command
@@ -35,9 +36,13 @@ from .core.arg import (CMD_WORKFLOW,
                        opt_graph_tmprof,
                        opt_graph_ncov,
                        opt_graph_mhist,
+                       opt_graph_abundance,
                        opt_graph_giniroll,
                        opt_graph_roc,
                        opt_graph_aucroll,
+                       opt_graph_poscorr,
+                       opt_graph_mutdist,
+                       opt_mutdist_null,
                        extra_defaults)
 from .core.run import run_func
 from .core.seq import DNA
@@ -50,9 +55,12 @@ from .core.table import (DELET_REL,
                          SUB_G_REL,
                          SUB_T_REL,
                          INFOR_REL)
+from .graph.abundance import ClusterAbundanceRunner
 from .graph.aucroll import RollingAUCRunner
 from .graph.giniroll import RollingGiniRunner
 from .graph.histread import ReadHistogramRunner
+from .graph.mutdist import MutationDistanceRunner
+from .graph.poscorr import PositionCorrelationRunner
 from .graph.profile import ProfileRunner
 from .graph.roc import ROCRunner
 
@@ -64,26 +72,22 @@ MUTAT_RELS = "".join(REL_NAMES[code] for code in [SUB_A_REL,
                                                   INSRT_REL])
 
 
-def as_tuple_str(items: Iterable):
-    return tuple(map(str, items))
-
-
 @run_func(CMD_WORKFLOW,
           default=None,
           extra_defaults=extra_defaults)
-def run(fasta: str,
-        input_path: tuple[str, ...], *,
+def run(fasta: str | Path,
+        input_path: Iterable[str | Path], *,
         # General options
-        out_dir: str,
-        tmp_pfx: str,
+        out_dir: str | Path,
+        tmp_pfx: str | Path,
         keep_tmp: bool,
         brotli_level: int,
         force: bool,
         max_procs: int,
         # FASTQ options
-        fastqz: tuple[str, ...],
-        fastqy: tuple[str, ...],
-        fastqx: tuple[str, ...],
+        fastqz: Iterable[str | Path],
+        fastqy: Iterable[str | Path],
+        fastqx: Iterable[str | Path],
         phred_enc: int,
         # Demultiplexing options
         demulti_overwrite: bool,
@@ -95,9 +99,9 @@ def run(fasta: str,
         barcode_start: int,
         barcode_end: int,
         # Align options
-        dmfastqz: tuple[str, ...],
-        dmfastqy: tuple[str, ...],
-        dmfastqx: tuple[str, ...],
+        dmfastqz: Iterable[str | Path],
+        dmfastqy: Iterable[str | Path],
+        dmfastqx: Iterable[str | Path],
         fastp: bool,
         fastp_5: bool,
         fastp_3: bool,
@@ -139,6 +143,7 @@ def run(fasta: str,
         min_reads: int,
         insert3: bool,
         ambindel: bool,
+        ambindel_max_iter: int,
         overhangs: bool,
         clip_end5: int,
         clip_end3: int,
@@ -147,18 +152,18 @@ def run(fasta: str,
         relate_read_table: bool,
         relate_cx: bool,
         # Mask options
-        mask_coords: tuple[tuple[str, int, int], ...],
-        mask_primers: tuple[tuple[str, DNA, DNA], ...],
+        mask_coords: Iterable[tuple[str, int, int]],
+        mask_primers: Iterable[tuple[str, DNA, DNA]],
         primer_gap: int,
         mask_regions_file: str | None,
         mask_del: bool,
         mask_ins: bool,
-        mask_mut: tuple[str, ...],
+        mask_mut: Iterable[str],
         mask_polya: int,
         mask_gu: bool,
-        mask_pos: tuple[tuple[str, int], ...],
+        mask_pos: Iterable[tuple[str, int]],
         mask_pos_file: str | None,
-        mask_read: tuple[str, ...],
+        mask_read: Iterable[str],
         mask_read_file: str | None,
         mask_discontig: bool,
         min_ncov_read: int,
@@ -195,8 +200,8 @@ def run(fasta: str,
         verify_times: bool,
         # Fold options
         fold: bool,
-        fold_coords: tuple[tuple[str, int, int], ...],
-        fold_primers: tuple[tuple[str, DNA, DNA], ...],
+        fold_coords: Iterable[tuple[str, int, int]],
+        fold_primers: Iterable[tuple[str, DNA, DNA]],
         fold_regions_file: str | None,
         fold_full: bool,
         quantile: float,
@@ -208,7 +213,7 @@ def run(fasta: str,
         fold_percent: float,
         # Draw options,
         draw: bool,
-        struct_num: tuple[int, ...],
+        struct_num: Iterable[int],
         color: bool,
         # Export options,
         export: bool,
@@ -219,7 +224,7 @@ def run(fasta: str,
         cgroup: str,
         hist_bins: int,
         hist_margin: float,
-        struct_file: tuple[str, ...],
+        struct_file: Iterable[str | Path],
         window: int,
         winmin: int,
         csv: bool,
@@ -231,17 +236,38 @@ def run(fasta: str,
         graph_tmprof: bool,
         graph_ncov: bool,
         graph_mhist: bool,
+        graph_abundance: bool,
         graph_giniroll: bool,
         graph_roc: bool,
-        graph_aucroll: bool):
+        graph_aucroll: bool,
+        graph_poscorr: bool,
+        graph_mutdist: bool,
+        mutdist_null: bool):
     """ Run the entire workflow. """
-    # Demultiplex
+    # Ensure that each iterable argument is a list rather than an
+    # exhaustible generator.
+    input_path = list(input_path)
+    fastqx = list(fastqx)
+    fastqy = list(fastqy)
+    fastqz = list(fastqz)
+    dmfastqx = list(dmfastqx)
+    dmfastqy = list(dmfastqy)
+    dmfastqz = list(dmfastqz)
+    mask_coords = list(mask_coords)
+    mask_primers = list(mask_primers)
+    mask_pos = list(mask_pos)
+    mask_read = list(mask_read)
+    fold_coords = list(fold_coords)
+    fold_primers = list(fold_primers)
+    struct_num = list(struct_num)
+    struct_file = list(struct_file)
     if demult_on:
-        for dms, dmi, dmm in demultiplex_mod.run_dm(
+        for dmz, dmy, dmx in demultiplex_mod.run_dm(
                 fasta=fasta,
                 refs_meta=refs_meta,
                 out_dir=out_dir,
                 tmp_pfx=tmp_pfx,
+                keep_tmp=keep_tmp,
                 demulti_overwrite=demulti_overwrite,
                 fastqx=fastqx,
                 clipped=clipped,
@@ -250,16 +276,14 @@ def run(fasta: str,
                 parallel_demultiplexing=parallel_demultiplexing,
                 barcode_start=barcode_start,
                 barcode_end=barcode_end,
-                phred_enc=phred_enc,
-                keep_tmp=keep_tmp):
-            dmfastqz = dmfastqz + dms
-            dmfastqy = dmfastqy + dmi
-            dmfastqx = dmfastqx + dmm
+                phred_enc=phred_enc):
+            dmfastqz = dmfastqz + dmz
+            dmfastqy = dmfastqy + dmy
+            dmfastqx = dmfastqx + dmx
         # Clear the input FASTQ files once the demultiplexed FASTQ files
         # have been generated.
-        fastqx = tuple()
-    # Align
-    input_path += as_tuple_str(align_mod.run(
+        fastqx = list()
+    input_path.extend(align_mod.run(
         out_dir=out_dir,
         tmp_pfx=tmp_pfx,
         keep_tmp=keep_tmp,
@@ -311,12 +335,12 @@ def run(fasta: str,
         f1r2_fwd=f1r2_fwd,
         rev_label=rev_label,
     ))
-    # Relate
-    input_path += as_tuple_str(relate_mod.run(
+    input_path.extend(relate_mod.run(
         fasta=fasta,
         input_path=input_path,
         out_dir=out_dir,
         tmp_pfx=tmp_pfx,
+        keep_tmp=keep_tmp,
         min_mapq=min_mapq,
         min_reads=min_reads,
         batch_size=batch_size,
@@ -324,6 +348,7 @@ def run(fasta: str,
         min_phred=min_phred,
         insert3=insert3,
         ambindel=ambindel,
+        ambindel_max_iter=ambindel_max_iter,
         overhangs=overhangs,
         clip_end5=clip_end5,
         clip_end3=clip_end3,
@@ -335,12 +360,11 @@ def run(fasta: str,
         max_procs=max_procs,
         brotli_level=brotli_level,
         force=force,
-        keep_tmp=keep_tmp,
     ))
-    # Mask
-    input_path += as_tuple_str(mask_mod.run(
+    input_path.extend(mask_mod.run(
         input_path=input_path,
         tmp_pfx=tmp_pfx,
+        keep_tmp=keep_tmp,
         mask_coords=mask_coords,
         mask_primers=mask_primers,
         primer_gap=primer_gap,
@@ -370,13 +394,13 @@ def run(fasta: str,
         max_procs=max_procs,
         force=force,
     ))
-    # Cluster
     if (cluster
             or min_clusters != opt_min_clusters.default
             or max_clusters != opt_max_clusters.default):
-        input_path += as_tuple_str(cluster_mod.run(
+        input_path.extend(cluster_mod.run(
             input_path=input_path,
             tmp_pfx=tmp_pfx,
+            keep_tmp=keep_tmp,
             min_clusters=min_clusters,
             max_clusters=max_clusters,
             em_runs=em_runs,
@@ -400,9 +424,8 @@ def run(fasta: str,
             max_procs=max_procs,
             force=force,
         ))
-    # Fold
     if fold:
-        input_path += as_tuple_str(fold_mod.run(
+        input_path.extend(fold_mod.run(
             input_path=input_path,
             fold_regions_file=fold_regions_file,
             fold_coords=fold_coords,
@@ -420,87 +443,9 @@ def run(fasta: str,
             max_procs=max_procs,
             force=force,
         ))
-    # Draw
-    if draw:
-        draw_mod.run(
-            input_path=input_path,
-            struct_num=struct_num,
-            color=color,
-            tmp_pfx=tmp_pfx,
-            keep_tmp=keep_tmp,
-            max_procs=max_procs,
-            force=force,
-        )
-    if graph_mprof or graph_tmprof:
-        rels = ()
-        if graph_mprof:
-            rels += REL_NAMES[MUTAT_REL],
-        if graph_tmprof:
-            rels += MUTAT_RELS,
-        # Graph mutational profiles.
-        ProfileRunner.run(input_path=input_path,
-                          rels=(REL_NAMES[MUTAT_REL], MUTAT_RELS),
-                          use_ratio=True,
-                          quantile=0.,
-                          cgroup=cgroup,
-                          csv=csv,
-                          html=html,
-                          svg=svg,
-                          pdf=pdf,
-                          png=png,
-                          max_procs=max_procs,
-                          force=force)
-    if graph_ncov:
-        # Graph information per position.
-        ProfileRunner.run(input_path=input_path,
-                          rels=(REL_NAMES[INFOR_REL],),
-                          use_ratio=False,
-                          quantile=0.,
-                          cgroup=cgroup,
-                          csv=csv,
-                          html=html,
-                          svg=svg,
-                          pdf=pdf,
-                          png=png,
-                          max_procs=max_procs,
-                          force=force)
-    if graph_mhist:
-        # Graph mutations per read.
-        ReadHistogramRunner.run(input_path=input_path,
-                                rels=(REL_NAMES[MUTAT_REL],),
-                                use_ratio=False,
-                                quantile=0.,
-                                cgroup=cgroup,
-                                hist_bins=hist_bins,
-                                hist_margin=hist_margin,
-                                csv=csv,
-                                html=html,
-                                svg=svg,
-                                pdf=pdf,
-                                png=png,
-                                max_procs=max_procs,
-                                force=force)
-    if graph_giniroll:
-        # Graph Gini coefficient.
-        RollingGiniRunner.run(input_path=input_path,
-                              rels=(REL_NAMES[MUTAT_REL],),
-                              use_ratio=True,
-                              quantile=0.,
-                              window=window,
-                              winmin=winmin,
-                              cgroup=cgroup,
-                              csv=csv,
-                              html=html,
-                              svg=svg,
-                              pdf=pdf,
-                              png=png,
-                              max_procs=max_procs,
-                              force=force)
-    if fold:
         if graph_roc:
-            # Graph ROC curves.
             ROCRunner.run(input_path=input_path,
-                          rels=(REL_NAMES[MUTAT_REL],),
+                          rels=[REL_NAMES[MUTAT_REL]],
                           use_ratio=True,
                           quantile=0.,
                           struct_file=struct_file,
@@ -517,9 +462,8 @@ def run(fasta: str,
                           max_procs=max_procs,
                           force=force)
         if graph_aucroll:
-            # Graph rolling AUC-ROC.
             RollingAUCRunner.run(input_path=input_path,
-                                 rels=(REL_NAMES[MUTAT_REL],),
+                                 rels=[REL_NAMES[MUTAT_REL]],
                                  use_ratio=True,
                                  quantile=0.,
                                  struct_file=struct_file,
@@ -537,7 +481,112 @@ def run(fasta: str,
                                  png=png,
                                  max_procs=max_procs,
                                  force=force)
-    # Export
+    if draw:
+        draw_mod.run(
+            input_path=input_path,
+            struct_num=struct_num,
+            color=color,
+            tmp_pfx=tmp_pfx,
+            keep_tmp=keep_tmp,
+            max_procs=max_procs,
+            force=force,
+        )
+    if graph_mprof or graph_tmprof:
+        rels = list()
+        if graph_mprof:
+            rels.append(REL_NAMES[MUTAT_REL])
+        if graph_tmprof:
+            rels.append(MUTAT_RELS)
+        ProfileRunner.run(input_path=input_path,
+                          rels=rels,
+                          use_ratio=True,
+                          quantile=0.,
+                          cgroup=cgroup,
+                          csv=csv,
+                          html=html,
+                          svg=svg,
+                          pdf=pdf,
+                          png=png,
+                          max_procs=max_procs,
+                          force=force)
+    if graph_ncov:
+        ProfileRunner.run(input_path=input_path,
+                          rels=[REL_NAMES[INFOR_REL]],
+                          use_ratio=False,
+                          quantile=0.,
+                          cgroup=cgroup,
+                          csv=csv,
+                          html=html,
+                          svg=svg,
+                          pdf=pdf,
+                          png=png,
+                          max_procs=max_procs,
+                          force=force)
+    if graph_mhist:
+        ReadHistogramRunner.run(input_path=input_path,
+                                rels=[REL_NAMES[MUTAT_REL]],
+                                use_ratio=False,
+                                quantile=0.,
+                                cgroup=cgroup,
+                                hist_bins=hist_bins,
+                                hist_margin=hist_margin,
+                                csv=csv,
+                                html=html,
+                                svg=svg,
+                                pdf=pdf,
+                                png=png,
+                                max_procs=max_procs,
+                                force=force)
+    if graph_abundance:
+        ClusterAbundanceRunner.run(input_path=input_path,
+                                   use_ratio=True,
+                                   csv=csv,
+                                   html=html,
+                                   svg=svg,
+                                   pdf=pdf,
+                                   png=png,
+                                   max_procs=max_procs,
+                                   force=force)
+    if graph_giniroll:
+        RollingGiniRunner.run(input_path=input_path,
+                              rels=[REL_NAMES[MUTAT_REL]],
+                              use_ratio=True,
+                              quantile=0.,
+                              window=window,
+                              winmin=winmin,
+                              cgroup=cgroup,
+                              csv=csv,
+                              html=html,
+                              svg=svg,
+                              pdf=pdf,
+                              png=png,
+                              max_procs=max_procs,
+                              force=force)
+    if graph_poscorr:
+        PositionCorrelationRunner.run(input_path=input_path,
+                                      rels=[REL_NAMES[MUTAT_REL]],
+                                      cgroup=cgroup,
+                                      verify_times=verify_times,
+                                      csv=csv,
+                                      html=html,
+                                      svg=svg,
+                                      pdf=pdf,
+                                      png=png,
+                                      max_procs=max_procs,
+                                      force=force)
+    if graph_mutdist:
+        MutationDistanceRunner.run(input_path=input_path,
+                                   rels=[REL_NAMES[MUTAT_REL]],
+                                   cgroup=cgroup,
+                                   verify_times=verify_times,
+                                   mutdist_null=mutdist_null,
+                                   csv=csv,
+                                   html=html,
+                                   svg=svg,
+                                   pdf=pdf,
+                                   png=png,
+                                   max_procs=max_procs,
+                                   force=force)
     if export:
         export_mod.run(
             input_path=input_path,
@@ -565,9 +614,13 @@ graph_options = [opt_cgroup,
                  opt_graph_tmprof,
                  opt_graph_ncov,
                  opt_graph_mhist,
+                 opt_graph_abundance,
                  opt_graph_giniroll,
                  opt_graph_roc,
-                 opt_graph_aucroll]
+                 opt_graph_aucroll,
+                 opt_graph_poscorr,
+                 opt_graph_mutdist,
+                 opt_mutdist_null]
 
 params = merge_params([opt_demultiplex],
                       demultiplex_mod.params,
@@ -589,24 +642,3 @@ params = merge_params([opt_demultiplex],
 def cli(*args, **kwargs):
     """ Run the entire workflow. """
     return run(*args, **kwargs)
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

@@ -1,21 +1,22 @@
-import numpy as np
+from abc import ABC
 from functools import cached_property
+
+import numpy as np
 
 from .batch import MaskMutsBatch, apply_mask
 from .io import MaskBatchIO
-from .report import MaskReport
-from ..core.data import (LoadedDataset,
-                         LoadFunction,
-                         MergedUnbiasDataset,
-                         MultistepDataset,
-                         UnbiasDataset)
+from .report import MaskReport, JoinMaskReport
+from ..core.dataset import (LoadedDataset,
+                            LoadFunction,
+                            MergedUnbiasDataset,
+                            MultistepDataset,
+                            UnbiasDataset)
 from ..core.join import (BATCH_NUM,
                          READ_NUMS,
                          SEG_END5S,
                          SEG_END3S,
                          MUTS,
-                         JoinMutsDataset,
-                         JoinMaskReport)
+                         JoinMutsDataset)
 from ..core.rel import RelPattern
 from ..core.report import (CountMutsF,
                            CountRefsF,
@@ -30,11 +31,15 @@ from ..core.report import (CountMutsF,
                            JoinedClustersF)
 from ..core.seq import Region
 from ..relate.batch import RelateBatch
-from ..relate.data import load_relate_dataset
+from ..relate.dataset import AverageDataset, load_relate_dataset
 
 
-class MaskReadDataset(LoadedDataset, UnbiasDataset):
-    """ Load batches of masked relation vectors. """
+class MaskDataset(AverageDataset, ABC):
+    """ Dataset of masked data. """
+
+
+class MaskReadDataset(MaskDataset, LoadedDataset, UnbiasDataset):
+    """ Load batches of masked data. """
 
     @classmethod
     def get_report_type(cls):
@@ -67,7 +72,7 @@ class MaskReadDataset(LoadedDataset, UnbiasDataset):
                           self.report.get_field(CountRefsF))
 
 
-class MaskMutsDataset(MultistepDataset, UnbiasDataset):
+class MaskMutsDataset(MaskDataset, MultistepDataset, UnbiasDataset):
     """ Chain mutation data with masked reads. """
 
     MASK_NAME = "mask"
@@ -131,7 +136,7 @@ class MaskMutsDataset(MultistepDataset, UnbiasDataset):
                           sanitize=False)
 
 
-class JoinMaskMutsDataset(JoinMutsDataset, MergedUnbiasDataset):
+class JoinMaskMutsDataset(MaskDataset, JoinMutsDataset, MergedUnbiasDataset):
 
     @classmethod
     def get_report_type(cls):
@@ -157,24 +162,3 @@ class JoinMaskMutsDataset(JoinMutsDataset, MergedUnbiasDataset):
 
 
 load_mask_dataset = LoadFunction(MaskMutsDataset, JoinMaskMutsDataset)
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

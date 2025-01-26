@@ -85,7 +85,7 @@ opt_out_dir = Option(
 opt_tmp_pfx = Option(
     ("--tmp-pfx", "-t"),
     type=Path(file_okay=False),
-    default=os.path.join(".", "tmp-"),
+    default=os.path.join(".", "tmp"),
     help="Write all temporary files to a directory with this prefix"
 )
 
@@ -499,6 +499,13 @@ opt_ambindel = Option(
     help="Mark all ambiguous insertions and deletions (indels)"
 )
 
+opt_ambindel_max_iter = Option(
+    ("--ambindel-max-iter",),
+    type=int,
+    default=10_000_000,
+    help="Stop ambiguous indels after this many iterations (0 for no limit)"
+)
+
 opt_insert3 = Option(
     ("--insert3/--insert5",),
     type=bool,
@@ -566,7 +573,7 @@ opt_relate_pos_table = Option(
 opt_relate_read_table = Option(
     ("--relate-read-table/--no-relate-read-table",),
     type=bool,
-    default=True,
+    default=False,
     help="Tabulate relationships per read for relate data"
 )
 
@@ -581,8 +588,8 @@ opt_relate_cx = Option(
 
 # Pool
 
-opt_pool = Option(
-    ("--pool", "-P"),
+opt_pooled = Option(
+    ("--pooled", "-p"),
     type=str,
     default="",
     help="Pooled sample name"
@@ -593,7 +600,7 @@ opt_pool = Option(
 opt_mask_regions_file = Option(
     ("--mask-regions-file", "-i"),
     type=Path(exists=True, dir_okay=False),
-    help="Mask regions of references from coordinates/primers in a CSV file"
+    help="Select regions of references from coordinates/primers in a CSV file"
 )
 
 opt_mask_coords = Option(
@@ -601,15 +608,15 @@ opt_mask_coords = Option(
     type=(str, int, int),
     multiple=True,
     default=(),
-    help="Mask a region of a reference given its 5' and 3' end coordinates"
+    help="Select a region of a reference given its 5' and 3' end coordinates"
 )
 
 opt_mask_primers = Option(
-    ("--mask-primers", "-p"),
+    ("--mask-primers", "-P"),
     type=(str, DNA, DNA),
     multiple=True,
     default=(),
-    help="Mask a region of a reference given its forward and reverse primers"
+    help="Select a region of a reference given its forward and reverse primers"
 )
 
 opt_primer_gap = Option(
@@ -750,7 +757,7 @@ opt_max_mask_iter = Option(
     ("--max-mask-iter",),
     type=int,
     default=0,
-    help="Maximum number of iterations for masking (0 for no limit)"
+    help="Stop masking after this many iterations (0 for no limit)"
 )
 
 opt_mask_pos_table = Option(
@@ -871,7 +878,7 @@ opt_em_runs = Option(
     ("--em-runs", "-e"),
     type=int,
     default=12,
-    help="Run EM this many times for each number of clusters (K)"
+    help="Run EM this many times for each number of clusters (K) except K = 1"
 )
 
 opt_min_em_iter = Option(
@@ -928,16 +935,32 @@ opt_deconvolve_abundance_table = Option(
 # Join options
 
 opt_joined = Option(
-    ("--joined", "-J"),
+    ("--joined", "-j"),
     type=str,
     default="",
-    help="Joined region name"
+    help="Name of the region formed by joining other regions"
 )
 
 opt_join_clusts = Option(
-    ("--join-clusts", "-j"),
+    ("--join-clusts", "-J"),
     type=Path(dir_okay=False, exists=True),
-    help="Join clusters from this CSV file"
+    help="Specify which clusters to join clusters using this CSV file"
+)
+
+# Ensembles options
+
+opt_region_length = Option(
+    ("--region-length", "-L",),
+    type=int,
+    default=180,
+    help="Make each region this length (nt)",
+)
+
+opt_region_min_overlap = Option(
+    ("--region-min-overlap", "-O"),
+    type=float,
+    default=(2. / 3.),
+    help="Make adjacent regions overlap by at least this fraction of length",
 )
 
 # List options
@@ -1211,6 +1234,13 @@ opt_graph_mhist = Option(
     help="Graph histograms of mutations per read"
 )
 
+opt_graph_abundance = Option(
+    ("--graph-abundance/--no-graph-abundance",),
+    type=bool,
+    default=True,
+    help="Graph abundance of each cluster"
+)
+
 opt_graph_giniroll = Option(
     ("--graph-giniroll/--no-graph-giniroll",),
     type=bool,
@@ -1232,6 +1262,27 @@ opt_graph_aucroll = Option(
     help="Graph rolling areas under receiver operating characteristic curves"
 )
 
+opt_graph_poscorr = Option(
+    ("--graph-poscorr/--no-graph-poscorr",),
+    type=bool,
+    default=False,
+    help="Graph phi correlations between positions"
+)
+
+opt_graph_mutdist = Option(
+    ("--graph-mutdist/--no-graph-mutdist",),
+    type=bool,
+    default=False,
+    help="Graph distances between mutations"
+)
+
+opt_mutdist_null = Option(
+    ("--mutdist-null/--no-mutdist-null",),
+    type=bool,
+    default=True,
+    help="Include the null distribution of distances between mutations"
+)
+
 # CT renumbering
 
 opt_ct_pos_5 = Option(
@@ -1244,11 +1295,11 @@ opt_ct_pos_5 = Option(
 )
 
 opt_inplace = Option(
-    ("--inplace/--newfile",),
+    ("--inplace/--no-inplace",),
     type=bool,
     default=False,
     help="Modify files in-place instead of writing new files "
-         "(WARNING: you cannot recover the original files afterwards)"
+         "(CAUTION: you cannot recover the original files afterwards)"
 )
 
 # Export
@@ -1496,24 +1547,3 @@ def optional_path(path_or_none: pathlib.Path | str | None):
     if path_or_none:
         return pathlib.Path(path_or_none)
     return None
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

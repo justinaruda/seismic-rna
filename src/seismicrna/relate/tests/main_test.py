@@ -11,7 +11,7 @@ from seismicrna.core.logs import Level, set_config
 from seismicrna.core.ngs.xam import SAM_DELIM
 from seismicrna.core.seq.fasta import write_fasta
 from seismicrna.core.seq.xna import DNA
-from seismicrna.relate.data import RelateDataset
+from seismicrna.relate.dataset import RelateMutsDataset
 from seismicrna.relate.main import run
 
 SAMPLE = "sample"
@@ -67,7 +67,7 @@ SAM_DATA_PAIRED = [
 
 
 def write_sam_file(out_dir: Path, data: list[list]):
-    sam_dir = out_dir.joinpath(SAMPLE, path.CMD_ALIGN_DIR)
+    sam_dir = out_dir.joinpath(SAMPLE, path.ALIGN_STEP)
     sam_dir.mkdir(parents=True)
     sam_file = sam_dir.joinpath(f"{REF}.sam")
     with open(sam_file, "x") as f:
@@ -95,7 +95,7 @@ def extract_batches(batches: Iterable[RegionMutsBatch]):
 def load_refseq(out_dir: Path):
     return RefseqIO.load(RefseqIO.build_path(top=out_dir,
                                              sample=SAMPLE,
-                                             cmd=path.CMD_REL_DIR,
+                                             cmd=path.RELATE_STEP,
                                              ref=REF),
                          checksum="").refseq
 
@@ -117,7 +117,7 @@ class TestRelate(ut.TestCase, ABC):
         self._out_dir = path.randdir(prefix="out-")
         self._fasta_file = write_fasta_file(self._out_dir)
         self._sam_file = write_sam_file(self._out_dir, self.get_sam_data())
-        set_config(verbosity=Level.SEVERE, raise_on_error=True)
+        set_config(verbosity=Level.FATAL, raise_on_error=True)
 
     def tearDown(self):
         rmtree(self._out_dir)
@@ -143,7 +143,7 @@ class TestRelate(ut.TestCase, ABC):
                           clip_end3=clip_end3,
                           **kwargs)
         relate_report_file = relate_dir.joinpath("relate-report.json")
-        return extract_batches(RelateDataset(relate_report_file).iter_batches())
+        return extract_batches(RelateMutsDataset(relate_report_file).iter_batches())
 
 
 class TestRelateEmpty(TestRelate):
@@ -513,24 +513,3 @@ class TestRelatePaired(TestRelate):
 
 if __name__ == "__main__":
     ut.main()
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

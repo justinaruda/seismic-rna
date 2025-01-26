@@ -1,24 +1,64 @@
-"""
-
-"""
-
 from functools import wraps
 from numbers import Number
-from typing import Callable
+from typing import Callable, Iterable
 
 import numpy as np
 import pandas as pd
 
 
+def find_highest_type(*values: np.ndarray | pd.Series | pd.DataFrame,
+                      creatable: bool = False):
+    """ Find the highest type among the values, in order of priority:
+    1.  DataFrame
+    2.  Series
+    3.  ndarray
+    4.  scalar
+
+    Parameters
+    ----------
+    *values: Number | numpy.ndarray | pandas.Series | pandas.DataFrame
+        Value(s) among which to find the highest type.
+    creatable: bool
+        Whether to return a function that can be called to construct a
+        new object of that type (if False, then just return the type).
+        This distinction only matters for np.ndarray vs. np.array.
+
+    Returns
+    -------
+    type[pd.DataFrame | pd.Series | np.ndarray | float]
+        The highest type among the values.
+    """
+    dataframe = False
+    series = False
+    ndarray = False
+    for value in values:
+        if isinstance(value, pd.DataFrame):
+            dataframe = True
+        elif isinstance(value, pd.Series):
+            series = True
+        elif isinstance(value, np.ndarray):
+            ndarray = True
+        elif not isinstance(value, Number):
+            raise TypeError(f"All values must be numeric, "
+                            f"but got {type(value).__name__}")
+    if dataframe:
+        return pd.DataFrame
+    if series:
+        return pd.Series
+    if ndarray:
+        return np.array if creatable else np.ndarray
+    return float
+
+
 def reframe(values: Number | np.ndarray | pd.Series | pd.DataFrame,
-            axes: None | tuple[int | np.ndarray | pd.Index, ...] = None):
+            axes: Iterable[int | np.ndarray | pd.Index] | None = None):
     """ Place the values in an array object with the given axes.
 
     Parameters
     ----------
     values: Number | numpy.ndarray | pandas.Series | pandas.DataFrame
         Value(s) to place in a new array-like object.
-    axes: None | tuple[int | numpy.ndarray | pandas.Index, ...] = None
+    axes: tuple[int | numpy.ndarray | pandas.Index, ...] | None
         Axes of the new array-like object, specified as follows:
 
         - If None, then return just the values as a NumPy array.
@@ -151,24 +191,3 @@ def auto_reframe(func: Callable):
         return reframe_like(result, data, data.ndim - result.ndim)
 
     return wrapper
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

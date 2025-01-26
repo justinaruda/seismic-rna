@@ -13,9 +13,9 @@ from ..core.logs import logger
 from ..core.rna import parse_db_strings
 from ..core.write import need_write, write_mode
 from ..fold.rnastructure import parse_energy
-from ..mask.data import MaskMutsDataset
+from ..mask.dataset import MaskMutsDataset
 from ..mask.report import MaskReport
-from ..relate.data import load_relate_dataset
+from ..relate.dataset import load_relate_dataset
 from ..relate.report import RelateReport
 from ..core.table import (COVER_REL,
                           INFOR_REL,
@@ -133,8 +133,8 @@ def get_db_structs(table: PositionTable,
                 structs[profile.data_name] = struct
                 energies[profile.data_name] = energy
         else:
-            logger.warning(f"No structure model available for {profile} "
-                           f"(file {db_file} does not exist)")
+            logger.warning(f"No structure model available for {profile}: "
+                           f"{db_file} does not exist")
     return structs, energies
 
 
@@ -260,24 +260,3 @@ def export_sample(top_sample: tuple[Path, str], *args, force: bool, **kwargs):
         with open(sample_file, write_mode(force)) as f:
             json.dump(get_sample_data(top, sample, *args, **kwargs), f)
     return sample_file
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

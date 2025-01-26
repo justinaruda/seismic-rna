@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Iterable
 
 from click import command
 
@@ -63,14 +64,14 @@ def split_xam_file(xam_file: Path,
     result_dir = path.build(*path.CMD_DIR_SEGS,
                             top=out_dir,
                             sample=sample,
-                            cmd=path.CMD_ALIGN_DIR)
+                            cmd=path.ALIGN_STEP)
     if need_write(result_dir, force):
         # Sort and index the XAM file.
         xam_input_dir = tmp_dir.joinpath("input")
         xam_sorted = path.buildpar(*path.XAM_SEGS,
                                    top=xam_input_dir,
                                    sample=sample,
-                                   cmd=path.CMD_ALIGN_DIR,
+                                   cmd=path.ALIGN_STEP,
                                    ref=fasta.stem,
                                    ext=xam_file.suffix)
         run_sort_xam(xam_file, xam_sorted, n_procs=n_procs)
@@ -90,17 +91,17 @@ def split_xam_file(xam_file: Path,
                        path.build(*path.CMD_DIR_SEGS,
                                   top=release_dir,
                                   sample=sample,
-                                  cmd=path.CMD_ALIGN_DIR))
+                                  cmd=path.ALIGN_STEP))
     return result_dir
 
 
 @run_func(CMD_SPLITBAM, with_tmp=True, pass_keep_tmp=True)
-def run(fasta: str, *,
+def run(fasta: str | Path, *,
         # Inputs
-        input_path: tuple[str, ...],
+        input_path: Iterable[str | Path],
         phred_enc: int,
         # Outputs
-        out_dir: str,
+        out_dir: str | Path,
         tmp_dir: Path,
         keep_tmp: bool,
         # Bowtie2
@@ -212,24 +213,3 @@ params = [
 def cli(*args, **kwargs):
     """ Trim FASTQ files and align them to reference sequences. """
     return run(*args, **kwargs)
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

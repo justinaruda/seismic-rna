@@ -4,6 +4,7 @@ from .emk import EMRunsK, find_best_k
 from .io import ClusterIO, ClusterBatchIO
 from .uniq import UniqReads
 from ..core import path
+from ..core.join import JoinReport
 from ..core.report import (BatchedReport,
                            SampleF,
                            RefF,
@@ -27,7 +28,9 @@ from ..core.report import (BatchedReport,
                            ClustConvThreshF,
                            EMKPassingF,
                            BestKF,
-                           KsWrittenF)
+                           KsWrittenF,
+                           JoinedRegionsF,
+                           JoinedClustersF)
 
 
 class ClusterReport(BatchedReport, ClusterIO):
@@ -38,7 +41,7 @@ class ClusterReport(BatchedReport, ClusterIO):
 
     @classmethod
     def _batch_types(cls):
-        return ClusterBatchIO,
+        return [ClusterBatchIO]
 
     @classmethod
     def fields(cls):
@@ -73,7 +76,7 @@ class ClusterReport(BatchedReport, ClusterIO):
 
     @classmethod
     def auto_fields(cls):
-        return {**super().auto_fields(), path.CMD: path.CMD_CLUST_DIR}
+        return {**super().auto_fields(), path.CMD: path.CLUSTER_STEP}
 
     @classmethod
     def from_clusters(cls,
@@ -128,23 +131,25 @@ class ClusterReport(BatchedReport, ClusterIO):
                    began=began,
                    ended=ended)
 
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################
+
+class JoinClusterReport(JoinReport):
+
+    @classmethod
+    def file_seg_type(cls):
+        return path.ClustRepSeg
+
+    @classmethod
+    def fields(cls):
+        return [
+            # Sample and reference.
+            SampleF,
+            RefF,
+            RegF,
+            # Joined data.
+            JoinedRegionsF,
+            JoinedClustersF,
+        ] + super().fields()
+
+    @classmethod
+    def auto_fields(cls):
+        return {**super().auto_fields(), path.CMD: path.CLUSTER_STEP}

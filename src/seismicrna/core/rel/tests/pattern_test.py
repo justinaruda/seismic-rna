@@ -316,8 +316,6 @@ class TestRelPattern(ut.TestCase):
         hrp2 = HalfRelPattern("ac", "at", "ca", "cc", "ga", "gg", "gi", "td")
         self.assertEqual(RelPattern(hrp1, hrp2).intersect(None),
                          RelPattern(hrp1, hrp2))
-        self.assertEqual(RelPattern(hrp1, hrp2).intersect(None, invert=True),
-                         RelPattern(hrp2, hrp1))
 
     def test_intersect_other(self):
         hrp1 = HalfRelPattern("aa", "ac", "ca", "cc", "ga", "gt", "gi", "td")
@@ -330,11 +328,6 @@ class TestRelPattern(ut.TestCase):
             RelPattern(hrp1, hrp3).intersect(RelPattern(hrp2, hrp4)),
             RelPattern(hrp12, hrp34)
         )
-        self.assertEqual(
-            RelPattern(hrp1, hrp3).intersect(RelPattern(hrp2, hrp4),
-                                             invert=True),
-            RelPattern(hrp34, hrp12)
-        )
 
     def test_invert(self):
         hrp1 = HalfRelPattern("aa", "ac", "ca", "cc", "ga", "gt", "gi", "td")
@@ -345,24 +338,3 @@ class TestRelPattern(ut.TestCase):
 
 if __name__ == "__main__":
     ut.main()
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

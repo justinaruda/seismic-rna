@@ -546,8 +546,6 @@ class Region(object):
         if existing is not None:
             p = np.union1d(p, existing)
         self._masks[name] = p
-        # Do not log self._masks[name] due to memory leak.
-        logger.detail(f"Added mask {repr(name)} to {self}")
         # Return self to allow chaining repeated calls to add_mask(),
         # e.g. region.add_mask("a", [1]).add_mask("b", [2], True).
         return self
@@ -973,6 +971,7 @@ class RefRegions(object):
         # For each reference, generate regions from the coordinates.
         self._regions: dict[str, dict[tuple[int, int], Region]] = dict()
         for ref, refseq in RefSeqs(ref_seqs):
+            assert ref not in self._regions
             self._regions[ref] = dict()
             for end5, end3 in ref_coords[ref]:
                 # Add a region for each pair of 5' and 3' coordinates.
@@ -1044,24 +1043,3 @@ class RefRegions(object):
 
     def __str__(self):
         return f"{type(self).__name__} ({self.count}): {list(self._regions)}"
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

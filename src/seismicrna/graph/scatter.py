@@ -7,20 +7,27 @@ import pandas as pd
 from click import command
 from plotly import graph_objects as go
 
-from .color import ColorMapGraph, SeqColorMap
 from .base import Annotation
-from .table import TableGraphWriter, PosGraphRunner
+from .color import ColorMapGraph, SeqColorMap
+from .rel import OneRelGraph
+from .table import PositionTableRunner
 from .trace import iter_seq_base_scatter_traces
-from .twotable import SAMPLE_NAME, TwoTableGraph, TwoTableRunner, TwoTableWriter
+from .twotable import (SAMPLE_NAME,
+                       TwoTableRelClusterGroupGraph,
+                       TwoTableRelClusterGroupWriter,
+                       TwoTableRelClusterGroupRunner)
 from ..core.arg import opt_metric
 from ..core.mu import get_comp_method
+from ..core.run import log_command
 
 COMMAND = __name__.split(os.path.extsep)[-1]
 
 PRECISION = 3
 
 
-class ScatterPlotGraph(TwoTableGraph, ColorMapGraph):
+class ScatterGraph(TwoTableRelClusterGroupGraph,
+                   OneRelGraph,
+                   ColorMapGraph):
 
     @classmethod
     def graph_kind(cls):
@@ -96,46 +103,30 @@ class ScatterPlotGraph(TwoTableGraph, ColorMapGraph):
         fig.update_yaxes(gridcolor="#d0d0d0")
 
 
-class ScatterPlotWriter(TwoTableWriter, TableGraphWriter):
+class ScatterWriter(TwoTableRelClusterGroupWriter):
 
     @classmethod
     def get_graph_type(cls):
-        return ScatterPlotGraph
+        return ScatterGraph
 
 
-class ScatterPlotRunner(TwoTableRunner, PosGraphRunner):
+class ScatterRunner(TwoTableRelClusterGroupRunner, PositionTableRunner):
 
     @classmethod
     def get_writer_type(cls):
-        return ScatterPlotWriter
+        return ScatterWriter
 
     @classmethod
     def var_params(cls):
         return super().var_params() + [opt_metric]
 
+    @classmethod
+    @log_command(COMMAND)
+    def run(cls, *args, **kwargs):
+        return super().run(*args, **kwargs)
 
-@command(COMMAND, params=ScatterPlotRunner.params())
+
+@command(COMMAND, params=ScatterRunner.params())
 def cli(*args, **kwargs):
     """ Scatter plot comparing two profiles. """
-    return ScatterPlotRunner.run(*args, **kwargs)
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################
+    return ScatterRunner.run(*args, **kwargs)

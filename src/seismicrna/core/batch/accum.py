@@ -21,8 +21,9 @@ def accumulate_counts(batch_counts: Iterable[tuple[Any, Any, Any, Any]],
                       count_read: bool = True,
                       validate: bool = True):
     """ """
-    logger.routine(f"Began accumulating patterns {patterns}")
-    header = make_header(rels=list(patterns), ks=ks)
+    rels = list(patterns)
+    logger.routine(f"Began accumulating patterns {rels}")
+    header = make_header(rels=rels, ks=ks)
     end_counts_index = pd.MultiIndex.from_arrays([np.array([], dtype=int)
                                                   for _ in END_COORDS],
                                                  names=END_COORDS)
@@ -56,6 +57,7 @@ def accumulate_counts(batch_counts: Iterable[tuple[Any, Any, Any, Any]],
              end_counts_i,
              count_per_pos_i,
              count_per_read_i)) in enumerate(batch_counts):
+        logger.detail(f"Began adding counts for batch {i}")
         if not isinstance(num_reads_i, type(num_reads)):
             raise TypeError(
                 f"num_reads_i must be {type(num_reads).__name__}, "
@@ -113,6 +115,7 @@ def accumulate_counts(batch_counts: Iterable[tuple[Any, Any, Any, Any]],
                     f"and header ({rel_header.index})"
                 )
             count_per_batch_read.append(count_per_read_i)
+        logger.detail(f"Ended adding counts for batch {i}")
     # Concatenate the per-read counts for the batches.
     if count_per_batch_read:
         count_per_read = pd.concat(count_per_batch_read, axis=0)
@@ -120,7 +123,7 @@ def accumulate_counts(batch_counts: Iterable[tuple[Any, Any, Any, Any]],
         count_per_read = pd.DataFrame(columns=rel_header.index, dtype=dtype)
     else:
         count_per_read = None
-    logger.routine(f"Ended accumulating patterns {patterns}")
+    logger.routine(f"Ended accumulating patterns {rels}")
     return num_reads, end_counts, count_per_pos, count_per_read
 
 
@@ -158,24 +161,3 @@ def accumulate_batches(
                              count_pos=count_pos,
                              count_read=count_read,
                              validate=validate)
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

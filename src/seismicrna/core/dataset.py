@@ -59,6 +59,21 @@ class Dataset(ABC):
 
     @property
     @abstractmethod
+    def pattern(self) -> RelPattern | None:
+        """ Pattern of mutations to count. """
+
+    @cached_property
+    @abstractmethod
+    def ks(self) -> list[int]:
+        """ Numbers of clusters. """
+
+    @cached_property
+    @abstractmethod
+    def best_k(self) -> int:
+        """ Best number of clusters. """
+
+    @property
+    @abstractmethod
     def timestamp(self) -> datetime:
         """ Time at which the data were written. """
 
@@ -71,11 +86,6 @@ class Dataset(ABC):
     @abstractmethod
     def data_dirs(self) -> list[Path]:
         """ All directories containing data for the dataset. """
-
-    @property
-    @abstractmethod
-    def pattern(self) -> RelPattern | None:
-        """ Pattern of mutations to count. """
 
     @property
     @abstractmethod
@@ -100,6 +110,16 @@ class Dataset(ABC):
     def num_reads(self):
         """ Number of reads in the dataset. """
         return sum(batch.num_reads for batch in self.iter_batches())
+
+    def link_data_dirs_to_tmp(self, tmp_dir: Path):
+        """ Make links to a dataset in a temporary directory. """
+        for data_dir in self.data_dirs:
+            tmp_data_dir = path.transpath(tmp_dir,
+                                          self.top,
+                                          data_dir,
+                                          strict=True)
+            path.mkdir_if_needed(tmp_data_dir.parent)
+            path.symlink_if_needed(tmp_data_dir, data_dir)
 
     def __str__(self):
         return f"{type(self).__name__} for sample {repr(self.sample)}"
@@ -179,7 +199,7 @@ class LoadFunction(object):
     """ Function to load a dataset. """
 
     def __init__(self, data_type: type[Dataset], /, *more_types: type[Dataset]):
-        self.dataset_types = [data_type] + list(more_types)
+        self.dataset_types = (data_type,) + more_types
 
     def _dataset_type_consensus(self,
                                 method: Callable[[type[Dataset]], Any],
@@ -586,24 +606,3 @@ def load_datasets(input_path: Iterable[str | Path],
             yield load_func(report_file, **kwargs)
         except Exception as error:
             logger.error(error)
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

@@ -11,13 +11,14 @@ from typing import Callable, Optional, TextIO
 
 class Level(IntEnum):
     """ Level of a logging message. """
-    SEVERE = -3
+    FATAL = -3
     ERROR = -2
     WARNING = -1
-    COMMAND = 0
+    STATUS = 0
     TASK = 1
-    ROUTINE = 2
-    DETAIL = 3
+    ACTION = 2
+    ROUTINE = 3
+    DETAIL = 4
 
 
 class Message(object):
@@ -159,14 +160,15 @@ class AnsiCode(object):
 #       echo -ne "\033[38;5;${i}m  ${i} "
 #   done
 LEVEL_COLORS = {
-    Level.SEVERE: "".join([AnsiCode.format_color(198),
-                           AnsiCode.format(AnsiCode.BOLD)]),
+    Level.FATAL: "".join([AnsiCode.format_color(198),
+                          AnsiCode.format(AnsiCode.BOLD)]),
     Level.ERROR: AnsiCode.format_color(160),
     Level.WARNING: AnsiCode.format_color(214),
-    Level.COMMAND: AnsiCode.format_color(28),
-    Level.TASK: AnsiCode.format_color(33),
-    Level.ROUTINE: AnsiCode.format_color(55),
-    Level.DETAIL: AnsiCode.format_color(240),
+    Level.STATUS: AnsiCode.format_color(28),
+    Level.TASK: AnsiCode.format_color(38),
+    Level.ACTION: AnsiCode.format_color(69),
+    Level.ROUTINE: AnsiCode.format_color(147),
+    Level.DETAIL: AnsiCode.format_color(247),
 }
 
 
@@ -208,8 +210,8 @@ class Logger(object):
         if self.file_stream is not None:
             self.file_stream.log(message)
 
-    def severe(self, content: object):
-        self._log(Level.SEVERE, content)
+    def fatal(self, content: object):
+        self._log(Level.FATAL, content)
 
     def error(self, content: object):
         self._log(Level.ERROR, content)
@@ -217,11 +219,14 @@ class Logger(object):
     def warning(self, content: object):
         self._log(Level.WARNING, content)
 
-    def command(self, content: object):
-        self._log(Level.COMMAND, content)
+    def status(self, content: object):
+        self._log(Level.STATUS, content)
 
     def task(self, content: object):
         self._log(Level.TASK, content)
+
+    def action(self, content: object):
+        self._log(Level.ACTION, content)
 
     def routine(self, content: object):
         self._log(Level.ROUTINE, content)
@@ -234,7 +239,7 @@ logger = Logger()
 
 DEFAULT_COLOR = True
 DEFAULT_RAISE = False
-DEFAULT_VERBOSITY = Level.COMMAND
+DEFAULT_VERBOSITY = Level.STATUS
 FILE_VERBOSITY = Level.DETAIL
 EXC_INFO_VERBOSITY = Level.TASK
 
@@ -297,7 +302,7 @@ def exc_info():
 
 
 def log_exceptions(default: Optional[Callable]):
-    """ If any exception occurs, catch it and return an empty list. """
+    """ If any exception occurs, catch it and return the default. """
 
     def decorator(func: Callable):
 
@@ -306,7 +311,7 @@ def log_exceptions(default: Optional[Callable]):
             try:
                 return func(*args, **kwargs)
             except Exception as error:
-                logger.severe(error)
+                logger.fatal(error)
                 return default() if default is not None else None
 
         return wrapper
@@ -330,24 +335,3 @@ def restore_config(func: Callable):
 
 # Initialize logging so that it will run by default if using the API.
 set_config()
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

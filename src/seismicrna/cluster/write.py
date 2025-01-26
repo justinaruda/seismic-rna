@@ -5,7 +5,7 @@ from typing import Iterable
 
 import numpy as np
 
-from .data import ClusterMutsDataset
+from .dataset import ClusterMutsDataset
 from .emk import EMRunsK, find_best_k, sort_runs
 from .em import EMRun
 from .io import ClusterBatchWriter
@@ -20,10 +20,10 @@ from ..core.header import validate_ks
 from ..core.io import recast_file_path
 from ..core.logs import logger
 from ..core.task import dispatch
-from ..core.tmp import release_to_out
+from ..core.tmp import release_to_out, with_tmp_dir
 from ..core.types import get_max_uint
 from ..core.write import need_write
-from ..mask.data import load_mask_dataset
+from ..mask.dataset import load_mask_dataset
 from ..mask.report import MaskReport
 
 SEED_DTYPE = np.uint32
@@ -88,11 +88,12 @@ def run_ks(uniq_reads: UniqReads,
     # current K is worse than the previous K or raises an error.
     for k in ks:
         try:
+            num_runs = em_runs if k > 1 else 1
             # Cluster em_runs times with different starting points.
-            logger.routine(f"Began {em_runs} run(s) of EM with {k} cluster(s)")
+            logger.routine(f"Began {num_runs} run(s) of EM with {k} cluster(s)")
             runs = run_k(uniq_reads,
                          k,
-                         em_runs=(em_runs if k > 1 else 1),
+                         em_runs=num_runs,
                          em_thresh=(em_thresh if k > 1 else inf),
                          min_iter=(min_iter * k if k > 1 else 2),
                          max_iter=(max_iter * k if k > 1 else 2),
@@ -126,6 +127,7 @@ def run_ks(uniq_reads: UniqReads,
     return runs_ks
 
 
+@with_tmp_dir(pass_keep_tmp=False)
 def cluster(mask_report_file: Path, *,
             tmp_dir: Path,
             min_clusters: int,
@@ -152,7 +154,7 @@ def cluster(mask_report_file: Path, *,
                                     verify_times=verify_times)
         tmp_clust_dir = path.buildpar(*path.REG_DIR_SEGS,
                                       top=tmp_dir,
-                                      cmd=path.CMD_CLUST_DIR,
+                                      cmd=path.CLUSTER_STEP,
                                       sample=dataset.sample,
                                       ref=dataset.ref,
                                       reg=dataset.region.name)
@@ -232,24 +234,3 @@ def cluster(mask_report_file: Path, *,
             max_procs=n_procs,
         ).write_tables(pos=cluster_pos_table, clust=cluster_abundance_table)
     return cluster_report_file.parent
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

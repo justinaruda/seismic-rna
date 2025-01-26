@@ -5,11 +5,12 @@ import numpy as np
 import pandas as pd
 from click import command
 
-from .table import PosGraphRunner, TableGraphWriter
+from .table import PositionTableRunner, TableWriter
 from .onestruct import (StructOneTableGraph,
                         StructOneTableRunner,
                         StructOneTableWriter)
 from .trace import iter_roc_traces
+from ..core.run import log_command
 
 COMMAND = __name__.split(os.path.extsep)[-1]
 
@@ -126,41 +127,25 @@ class ROCGraph(StructOneTableGraph):
                 yield (row, 1), trace
 
 
-class ROCWriter(StructOneTableWriter, TableGraphWriter):
+class ROCWriter(StructOneTableWriter, TableWriter):
 
     def get_graph(self, rels_group: str, **kwargs):
         return ROCGraph(table=self.table, rel=rels_group, **kwargs)
 
 
-class ROCRunner(StructOneTableRunner, PosGraphRunner):
+class ROCRunner(StructOneTableRunner, PositionTableRunner):
 
     @classmethod
     def get_writer_type(cls):
         return ROCWriter
+
+    @classmethod
+    @log_command(COMMAND)
+    def run(cls, *args, **kwargs):
+        return super().run(*args, **kwargs)
 
 
 @command(COMMAND, params=ROCRunner.params())
 def cli(*args, **kwargs):
     """ ROC curve comparing a profile to a structure. """
     return ROCRunner.run(*args, **kwargs)
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

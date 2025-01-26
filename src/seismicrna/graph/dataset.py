@@ -1,18 +1,25 @@
 from abc import ABC, abstractmethod
 from functools import cached_property
+from itertools import chain
 from pathlib import Path
-from typing import Generator, Iterable
+from typing import Iterable
 
-from .base import GraphBase, GraphRunner, GraphWriter
-from ..cluster.data import load_cluster_dataset
-from ..core import path
-from ..core.data import MutsDataset
-from ..mask.data import load_mask_dataset
-from ..relate.data import load_relate_dataset
+from .base import (BaseWriter,
+                   get_action_name,
+                   make_path_subject,
+                   make_title_action_sample)
+from .cgroup import ClusterGroupRunner, cgroup_table
+from .onesource import OneSourceClusterGroupGraph
+from .rel import OneRelGraph, RelRunner
+from ..core.arg import opt_verify_times
+from ..core.dataset import MutsDataset
+from ..core.table import get_subpattern
+from ..core.task import dispatch
+from ..table import load_all_datasets
 
 
-class DatasetGraph(GraphBase, ABC):
-    """ Graph based on one or more tables. """
+class DatasetGraph(OneRelGraph, OneSourceClusterGroupGraph, ABC):
+    """ Graph based on one Dataset. """
 
     def __init__(self, *, dataset: MutsDataset, **kwargs):
         super().__init__(**kwargs)
@@ -39,8 +46,20 @@ class DatasetGraph(GraphBase, ABC):
         return self.dataset.region.seq
 
     @cached_property
+    def action(self):
+        return get_action_name(self.dataset)
+
+    @cached_property
+    def path_subject(self):
+        return make_path_subject(self.action, self.k, self.clust)
+
+    @cached_property
+    def title_action_sample(self):
+        return make_title_action_sample(self.action, self.sample)
+
+    @cached_property
     def _title_main(self):
-        return [f"{self.what()} between "
+        return [f"{self.what()} "
                 f"{self.relationships} bases "
                 f"in {self.title_action_sample} "
                 f"over reference {repr(self.ref)} "
@@ -52,58 +71,57 @@ class DatasetGraph(GraphBase, ABC):
 
     @cached_property
     def predicate(self):
-        return self.codestring
+        return super().predicate + [self.codestring]
+
+    @cached_property
+    def pattern(self):
+        """ Relationship pattern for the graph. """
+        return get_subpattern(self.rel_name, self.dataset.pattern)
 
 
-class DatasetGraphWriter(GraphWriter, ABC):
+class DatasetWriter(BaseWriter, ABC):
 
-    def __init__(self, *datasets: MutsDataset):
-        self.datasets = list(datasets)
+    def __init__(self, *, dataset: MutsDataset, **kwargs):
+        super().__init__(**kwargs)
+        self.dataset = dataset
 
     @abstractmethod
-    def iter_graphs(self,
-                    *args,
-                    **kwargs) -> Generator[DatasetGraph, None, None]:
-        pass
+    def get_graph(self, *args, **kwargs) -> DatasetGraph:
+        """ Return a graph instance. """
+
+    def iter_graphs(self, *, rels: list[str], cgroup: str, **kwargs):
+        for cparams in cgroup_table(self.dataset, cgroup):
+            for rel in rels:
+                yield self.get_graph(rel, **kwargs | cparams)
 
 
-def load_datasets(input_path: Iterable[str | Path]):
-    for load_func in (load_relate_dataset,
-                      load_mask_dataset,
-                      load_cluster_dataset):
-        yield from map(load_func,
-                       path.find_files_chain(input_path,
-                                             load_func.report_path_seg_types))
-
-
-class DatasetGraphRunner(GraphRunner, ABC):
+class DatasetRunner(RelRunner, ClusterGroupRunner, ABC):
 
     @classmethod
     @abstractmethod
-    def get_writer_type(cls) -> type[DatasetGraphWriter]:
+    def get_writer_type(cls) -> type[DatasetWriter]:
         pass
+
+    @classmethod
+    def var_params(cls):
+        return super().var_params() + [opt_verify_times]
 
     @classmethod
     def get_input_loader(cls):
-        return load_datasets
+        return load_all_datasets
 
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################
+    @classmethod
+    def run(cls,
+            input_path: Iterable[str | Path], *,
+            verify_times: bool,
+            max_procs: int,
+            **kwargs):
+        # Generate a table writer for each table.
+        writer_type = cls.get_writer_type()
+        writers = [writer_type(dataset=dataset) for dataset
+                   in cls.load_input_files(input_path,
+                                           verify_times=verify_times)]
+        return list(chain(*dispatch([writer.write for writer in writers],
+                                    max_procs,
+                                    pass_n_procs=False,
+                                    kwargs=kwargs)))

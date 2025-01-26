@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Iterable
 
 from click import command
 
@@ -69,17 +70,17 @@ from ..core.run import run_func
           with_tmp=True,
           pass_keep_tmp=True,
           extra_defaults=extra_defaults)
-def run(fasta: str, *,
+def run(fasta: str | Path, *,
         # Inputs
-        fastqz: tuple[str, ...],
-        fastqy: tuple[str, ...],
-        fastqx: tuple[str, ...],
-        dmfastqz: tuple[str, ...],
-        dmfastqy: tuple[str, ...],
-        dmfastqx: tuple[str, ...],
+        fastqz: Iterable[str | Path],
+        fastqy: Iterable[str | Path],
+        fastqx: Iterable[str | Path],
+        dmfastqz: Iterable[str | Path],
+        dmfastqy: Iterable[str | Path],
+        dmfastqx: Iterable[str | Path],
         phred_enc: int,
         # Outputs
-        out_dir: str,
+        out_dir: str | Path,
         tmp_dir: Path,
         keep_tmp: bool,
         # Fastp
@@ -257,24 +258,3 @@ params = [
 def cli(*args, **kwargs):
     """ Trim FASTQ files and align them to reference sequences. """
     return run(*args, **kwargs)
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

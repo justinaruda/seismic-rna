@@ -1,9 +1,12 @@
 from abc import ABC
 from functools import cached_property
 from pathlib import Path
+from typing import Iterable
 
-from .base import cgroup_table
-from .onetable import OneTableGraph, OneTableRunner, OneTableWriter
+from .cgroup import cgroup_table
+from .onetable import (OneTableRelClusterGroupGraph,
+                       OneTableRelClusterGroupWriter,
+                       OneTableRelClusterGroupRunner)
 from .rel import OneRelGraph
 from ..core import path
 from ..core.arg import (opt_struct_file,
@@ -17,7 +20,7 @@ from ..core.seq import DNA, RefRegions
 from ..fold.main import load_foldable_tables
 
 
-class StructOneTableGraph(OneTableGraph, OneRelGraph, ABC):
+class StructOneTableGraph(OneTableRelClusterGroupGraph, OneRelGraph, ABC):
     """ Graph of data from one Table applied to RNA structure(s). """
 
     def __init__(self, *,
@@ -59,7 +62,7 @@ class StructOneTableGraph(OneTableGraph, OneRelGraph, ABC):
         return path.build(*path.CT_FILE_SEGS,
                           top=self.top,
                           sample=self.sample,
-                          cmd=path.CMD_FOLD_DIR,
+                          cmd=path.FOLD_STEP,
                           ref=self.ref,
                           reg=self.struct_reg,
                           profile=profile,
@@ -98,14 +101,14 @@ class StructOneTableGraph(OneTableGraph, OneRelGraph, ABC):
                              "please obtain the file, e.g. using seismic fold")
 
 
-class StructOneTableWriter(OneTableWriter, ABC):
+class StructOneTableWriter(OneTableRelClusterGroupWriter, ABC):
 
-    def iter_graphs(self,
-                    rels: tuple[str, ...],
+    def iter_graphs(self, *,
+                    rels: list[str],
                     cgroup: str,
-                    struct_file: tuple[str, ...] = (),
-                    fold_coords: tuple[tuple[str, int, int], ...] = (),
-                    fold_primers: tuple[tuple[str, DNA, DNA], ...] = (),
+                    struct_file: Iterable[str | Path] = (),
+                    fold_coords: Iterable[tuple[str, int, int]] = (),
+                    fold_primers: Iterable[tuple[str, DNA, DNA]] = (),
                     fold_regions_file: str | None = None,
                     fold_full: bool = opt_fold_full.default,
                     **kwargs):
@@ -154,7 +157,7 @@ class StructOneTableWriter(OneTableWriter, ABC):
                                          **kwparams)
 
 
-class StructOneTableRunner(OneTableRunner, ABC):
+class StructOneTableRunner(OneTableRelClusterGroupRunner, ABC):
 
     @classmethod
     def get_input_loader(cls):
@@ -167,24 +170,3 @@ class StructOneTableRunner(OneTableRunner, ABC):
                                        opt_fold_coords,
                                        opt_fold_primers,
                                        opt_fold_full]
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

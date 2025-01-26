@@ -35,6 +35,7 @@ from ..core.rna import RNAProfile, ct_to_db
 from ..core.run import run_func
 from ..core.seq import DNA, RefRegions, RefSeqs, Region
 from ..core.task import as_list_of_tuples, dispatch
+from ..core.tmp import with_tmp_dir
 from ..core.write import need_write
 from ..mask.table import MaskPositionTableLoader
 
@@ -48,6 +49,7 @@ def load_foldable_tables(input_path: Iterable[str | Path]):
         yield from table_type.load_tables(paths)
 
 
+@with_tmp_dir(pass_keep_tmp=False)
 def fold_region(rna: RNAProfile, *,
                 out_dir: Path,
                 tmp_dir: Path,
@@ -117,13 +119,10 @@ def fold_profile(table: MaskPositionTableLoader | ClusterPositionTableLoader | D
                                 **kwargs))
 
 
-@run_func(CMD_FOLD,
-          with_tmp=True,
-          pass_keep_tmp=True,
-          extra_defaults=extra_defaults)
-def run(input_path: tuple[str, ...], *,
-        fold_coords: tuple[tuple[str, int, int], ...],
-        fold_primers: tuple[tuple[str, DNA, DNA], ...],
+@run_func(CMD_FOLD, extra_defaults=extra_defaults)
+def run(input_path: Iterable[str | Path], *,
+        fold_coords: Iterable[tuple[str, int, int]],
+        fold_primers: Iterable[tuple[str, DNA, DNA]],
         fold_regions_file: str | None,
         fold_full: bool,
         quantile: float,
@@ -133,7 +132,7 @@ def run(input_path: tuple[str, ...], *,
         fold_mfe: bool,
         fold_max: int,
         fold_percent: float,
-        tmp_dir: Path,
+        tmp_pfx: str | Path,
         keep_tmp: bool,
         max_procs: int,
         force: bool):
@@ -170,7 +169,7 @@ def run(input_path: tuple[str, ...], *,
         max_procs,
         pass_n_procs=True,
         args=args,
-        kwargs=dict(tmp_dir=tmp_dir,
+        kwargs=dict(tmp_pfx=tmp_pfx,
                     keep_tmp=keep_tmp,
                     quantile=quantile,
                     fold_temp=fold_temp,
@@ -207,24 +206,3 @@ params = [
 def cli(*args, **kwargs):
     """ Predict RNA secondary structures using mutation rates. """
     return run(*args, **kwargs)
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

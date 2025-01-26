@@ -86,8 +86,8 @@ TABLES = {path.CMD_MASK_DIR:(MaskPositionTable,
                                DeconvolvePositionTableLoader)}
 TABLES = {AVERAGE_PREFIX: (MaskPositionTable,
                            MaskPositionTableLoader),
-          path.CMD_CLUST_DIR: (ClusterPositionTable,
-                               ClusterPositionTableLoader)}
+          path.CLUSTER_STEP: (ClusterPositionTable,
+                              ClusterPositionTableLoader)}
 
 
 class ColorBlock:
@@ -229,7 +229,7 @@ class RNArtistRun(object):
             Path fields.
         """
         return {path.TOP: top,
-                path.CMD: path.CMD_FOLD_DIR,
+                path.CMD: path.FOLD_STEP,
                 path.SAMP: self.sample,
                 path.REF: self.ref,
                 path.REG: self.reg}
@@ -503,24 +503,3 @@ def draw(report_path: Path, *,
     # By convention, a function must return a Path for dispatch to deem
     # that it has completed successfully.
     return rnartist.run(keep_tmp, force)
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

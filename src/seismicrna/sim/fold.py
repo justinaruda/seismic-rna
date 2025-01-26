@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Iterable
 
 from click import command
 
@@ -100,11 +101,11 @@ def fold_region(region: Region, *,
           with_tmp=True,
           pass_keep_tmp=True,
           extra_defaults=extra_defaults)
-def run(fasta: str, *,
-        sim_dir: str,
+def run(fasta: str | Path, *,
+        sim_dir: str | Path,
         profile_name: str,
-        fold_coords: tuple[tuple[str, int, int], ...],
-        fold_primers: tuple[tuple[str, DNA, DNA], ...],
+        fold_coords: Iterable[tuple[str, int, int]],
+        fold_primers: Iterable[tuple[str, DNA, DNA]],
         fold_regions_file: str | None,
         fold_constraint: str | None,
         fold_temp: float,
@@ -165,24 +166,3 @@ params = [arg_fasta,
 def cli(*args, **kwargs):
     """ Simulate secondary structure(s) a reference sequence. """
     run(*args, **kwargs)
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

@@ -50,6 +50,7 @@ from .arg import (opt_phred_enc,
                   opt_min_mapq,
                   opt_insert3,
                   opt_ambindel,
+                  opt_ambindel_max_iter,
                   opt_overhangs,
                   opt_clip_end5,
                   opt_clip_end3,
@@ -357,6 +358,7 @@ RefseqChecksumF = Field("refseq_checksum",
                         str)
 Insert3F = OptionField(opt_insert3)
 AmbindelF = OptionField(opt_ambindel)
+AmbindelMaxIterF = OptionField(opt_ambindel_max_iter)
 OverhangsF = OptionField(opt_overhangs)
 MinPhredF = OptionField(opt_min_phred)
 ClipEnd5F = OptionField(opt_clip_end5)
@@ -556,6 +558,45 @@ DeconvolveNoProbeSampleF = Field("no_probe_sample", "No probe sample", str)
 DeconvolveOnlyProbeSampleF = Field("only_probe_sample",
                                    "Only probe sample", str)
 
+# Field exceptions
+
+
+class ReportFieldError(RuntimeError):
+    """ Any error involving a field of a report. """
+
+
+class ReportFieldTypeError(ReportFieldError, TypeError):
+    pass
+
+
+class ReportFieldValueError(ReportFieldError, ValueError):
+    pass
+
+
+class ReportFieldKeyError(ReportFieldError, KeyError):
+    pass
+
+
+class ReportFieldAttributeError(ReportFieldError, AttributeError):
+    pass
+
+
+class InvalidReportFieldKeyError(ReportFieldKeyError):
+    """ The key does not belog to an actual report field. """
+
+
+class InvalidReportFieldTitleError(ReportFieldKeyError):
+    """ The title does not belog to an actual report field. """
+
+
+class MissingFieldWithNoDefaultError(ReportFieldValueError):
+    """ The default value is requested of a field with no default. """
+
+
+class ReportDoesNotHaveFieldError(ReportFieldAttributeError):
+    """ A report does not contain this type of field. """
+
+
 # Field managing functions
 
 @cache
@@ -569,8 +610,7 @@ def field_keys() -> dict[str, Field]:
     keys = dict()
     for field in fields():
         if field.key:
-            if field.key in keys:
-                raise ValueError(f"Repeated field key: {repr(field.key)}")
+            assert field.key not in keys
             keys[field.key] = field
     return keys
 
@@ -580,8 +620,7 @@ def field_titles() -> dict[str, Field]:
     titles = dict()
     for field in fields():
         if field.title:
-            if field.title in titles:
-                raise ValueError(f"Repeated field title: {repr(field.title)}")
+            assert field.title not in titles
             titles[field.title] = field
     return titles
 
@@ -591,7 +630,7 @@ def lookup_key(key: str):
     try:
         return field_keys()[key]
     except KeyError:
-        raise ValueError(f"Invalid field key: {repr(key)}")
+        raise InvalidReportFieldKeyError(key) from None
 
 
 def lookup_title(title: str):
@@ -601,7 +640,7 @@ def lookup_title(title: str):
     try:
         return field_titles()[title]
     except KeyError:
-        raise ValueError(f"Invalid field title: {repr(title)}")
+        raise InvalidReportFieldTitleError(title) from None
 
 
 def key_to_title(key: str):
@@ -612,7 +651,7 @@ def key_to_title(key: str):
 def default_key(key: str):
     """ Get the default value of a field by its key. """
     if (default := lookup_key(key).default) is None:
-        raise ValueError(f"Field {repr(key_to_title(key))} has no default")
+        raise MissingFieldWithNoDefaultError(key_to_title(key))
     return default
 
 
@@ -638,23 +677,19 @@ class Report(FileIO, ABC):
         """ Convert a dict of raw values (keyed by the titles of their
         fields) into a dict of encoded values (keyed by the keys of
         their fields), from which a new Report is instantiated. """
-        logger.routine(f"Began parsing data for {cls.__name__}")
         if not isinstance(odata, dict):
-            raise TypeError(f"Expected dict, but got {type(odata).__name__}")
+            raise TypeError(odata)
         # Read every raw value, keyed by the title of its field.
         idata = dict()
         for title, value in odata.items():
             # Get the field corresponding to the title.
             try:
                 field = lookup_title(title)
-            except ValueError as error:
+            except InvalidReportFieldTitleError as error:
                 logger.warning(error)
             else:
                 # Cast the value to the input type; key it by the field.
-                key = field.key
                 idata[field.key] = field.iconv(value)
-                logger.detail(f"Parsed field {repr(key)}: {repr(idata[key])}")
-        logger.routine(f"Ended parsing data for {cls.__name__}")
         # Instantiate and return a new Report from the values.
         return cls(**idata)
 
@@ -710,7 +745,7 @@ class Report(FileIO, ABC):
             # warning and ignore the extra fields (to make different
             # versions compatible).
             logger.warning(
-                f"Got extra fields for {type(self).__name__}: {list(kwargs)}"
+                f"Extra fields for {type(self).__name__}: {list(kwargs)}"
             )
         if defaulted:
             # If the report file was missing keyword arguments that have
@@ -727,7 +762,9 @@ class Report(FileIO, ABC):
         except AttributeError:
             if missing_ok:
                 return None
-            raise
+            raise ReportDoesNotHaveFieldError(
+                f"{type(self).__name__}.{field.key}"
+            ) from None
 
     def to_dict(self):
         """ Return a dict of raw values of the fields, keyed by the
@@ -756,9 +793,7 @@ class Report(FileIO, ABC):
     def __setattr__(self, key: str, value: Any):
         """ Validate the attribute name and value before setting it. """
         if key not in self.field_keys():
-            raise ValueError(
-                f"Invalid field for {type(self).__name__}: {repr(key)}"
-            )
+            raise ReportDoesNotHaveFieldError(f"{type(self).__name__}.{key}")
         super().__setattr__(key, value)
 
     def __eq__(self, other):
@@ -786,7 +821,7 @@ class BatchedReport(Report, ABC):
 
     @classmethod
     @abstractmethod
-    def _batch_types(cls) -> tuple[type[ReadBatchIO], ...]:
+    def _batch_types(cls) -> list[type[ReadBatchIO]]:
         """ Type(s) of batch(es) for the report. """
 
     @classmethod
@@ -810,24 +845,3 @@ class BatchedReport(Report, ABC):
 
 class BatchedRefseqReport(BatchedReport, RefseqReport, ABC):
     """ Convenience class used as a base for several Report classes. """
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

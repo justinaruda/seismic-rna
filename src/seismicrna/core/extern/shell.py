@@ -20,6 +20,10 @@ JAVA_CMD = "java"
 JAR_CMD = "-jar"
 
 
+class ShellCommandFailedError(RuntimeError):
+    """ A command failed that was run through the shell. """
+
+
 def args_to_cmd(args: list[Any]):
     """ Join a list of arguments into a command with shlex. """
     return shlex.join(map(str, args))
@@ -43,24 +47,21 @@ def cmds_to_subshell(cmds: list[str]):
 def run_cmd(cmd: str, text: bool | None = True):
     """ Run a command via subprocess.run(), with logging. """
     # Log the command with which the process was run.
-    logger.routine(f"Began running command via the shell:\n{cmd}")
+    logger.action(f"Began running shell command:\n{cmd}")
     # Run the process and capture the output.
     process = run(cmd,
                   shell=True,
                   capture_output=text is not None,
                   text=text)
-    # Format a message depending on whether the process succeeded.
-    succeeded = process.returncode == 0
-    if succeeded:
-        status = "SUCCEEDED"
-    else:
-        status = f"FAILED with code {process.returncode}"
-    message = "\n".join([f"Shell command {status}:\n{cmd}\n",
+    failed = process.returncode != 0
+    result = f"FAILED (code {process.returncode})" if failed else "SUCCEEDED"
+    message = "\n".join([f"Shell command {result}:\n{cmd}\n",
                          f"STDOUT:\n{process.stdout}\n",
                          f"STDERR:\n{process.stderr}\n"])
-    if not succeeded:
-        raise RuntimeError(message)
-    logger.routine(message)
+    if failed:
+        raise ShellCommandFailedError(message)
+    logger.detail(message)
+    logger.action("Ended running shell command")
     return process
 
 
@@ -134,24 +135,3 @@ class ShellCommand(object):
             logger.routine(f"Ended parsing output of {action}")
             return output
         return process
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

@@ -79,7 +79,7 @@ class FileIO(ABC):
         """ Save the object to a file. """
 
     def __str__(self):
-        return f"{type(self).__name__}: {self.path_field_values()}"
+        return type(self).__name__
 
 
 class RefIO(FileIO, ABC):
@@ -115,7 +115,7 @@ class BrickleIO(FileIO, ABC):
     @classmethod
     def load(cls, file: Path, **kwargs):
         """ Load from a compressed pickle file. """
-        return load_brickle(file, check_type=cls, **kwargs)
+        return load_brickle(file, data_type=cls, **kwargs)
 
     def save(self, top: Path, *args, **kwargs):
         """ Save to a pickle file compressed with Brotli. """
@@ -164,24 +164,3 @@ def recast_file_path(input_path: Path,
                           input_type.seg_types(),
                           output_type.seg_types(),
                           **(override | output_type.auto_fields()))
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

@@ -1,11 +1,10 @@
-from itertools import permutations
 from typing import Callable, Iterable
 
 import numpy as np
 
 from .em import EMRun
 from ..core.logs import logger
-from ..core.mu import calc_rmsd, calc_nrmsd, calc_pearson
+from ..core.mu import calc_sum_abs_diff_log_odds, calc_norm_rmsd, calc_pearson
 
 NOCONV = 0
 
@@ -239,12 +238,12 @@ def _compare_groups(func: Callable, mus1: np.ndarray, mus2: np.ndarray):
 
 def calc_rmsd_groups(mus1: np.ndarray, mus2: np.ndarray):
     """ Calculate the RMSD of each pair of clusters in two groups. """
-    return _compare_groups(calc_rmsd, mus1, mus2)
+    return _compare_groups(calc_sum_abs_diff_log_odds, mus1, mus2)
 
 
 def calc_nrmsd_groups(mus1: np.ndarray, mus2: np.ndarray):
     """ Calculate the NRMSD of each pair of clusters in two groups. """
-    return _compare_groups(calc_nrmsd, mus1, mus2)
+    return _compare_groups(calc_norm_rmsd, mus1, mus2)
 
 
 def calc_pearson_groups(mus1: np.ndarray, mus2: np.ndarray):
@@ -255,28 +254,29 @@ def calc_pearson_groups(mus1: np.ndarray, mus2: np.ndarray):
 
 def assign_clusterings(mus1: np.ndarray, mus2: np.ndarray):
     """ Optimally assign clusters from two groups to each other. """
-    # Make a cost matrix for assigning clusters using the RMSD.
-    costs = np.square(calc_rmsd_groups(mus1, mus2))
-    n, m = costs.shape
-    if n != m:
-        raise ValueError(f"Got different numbers of clusters in groups 1 ({n}) "
-                         f"and 2 ({m})")
-    # Find the assignment of clusters that gives the minimum cost using
-    # the naive approach of checking every possible pairwise assignment.
-    # While other algorithms (e.g. the Jonker-Volgenant algorithm) solve
-    # the assignment problem in O(n³) time, and this naive approach runs
-    # in O(n!) time, the latter is simpler and still sufficiently fast
-    # when n is no more than about 6, which is almost always true.
-    ns = np.arange(n)
-    best_assignment = ns
-    min_cost = None
-    for cols in permutations(ns):
-        assignment = np.array(cols, dtype=int)
-        cost = np.sum(costs[ns, assignment])
-        if min_cost is None or cost < min_cost:
-            min_cost = cost
-            best_assignment = assignment
-    return best_assignment
+    n1, k1 = mus1.shape
+    n2, k2 = mus2.shape
+    if n1 != n2:
+        raise ValueError(
+            f"Numbers of positions in groups 1 ({n1}) and 2 ({n2}) differ"
+        )
+    if k1 != k2:
+        raise ValueError(
+            f"Numbers of clusters in groups 1 ({k1}) and 2 ({k2}) differ"
+        )
+    if n1 >= 1:
+        costs = np.square(calc_rmsd_groups(mus1, mus2))
+        assert costs.shape == (k1, k2)
+        from scipy.optimize import linear_sum_assignment
+        rows, cols = linear_sum_assignment(costs)
+    else:
+        # If n1 == 0, then the costs matrix will contain NaN, which will
+        # cause linear_sum_assignment to raise an error.
+        rows = np.arange(k1)
+        cols = np.arange(k1)
+    assert np.array_equal(rows, np.arange(k1))
+    assert rows.shape == cols.shape
+    return rows, cols
 
 
 def calc_rms_nrmsd(run1: EMRun, run2: EMRun):
@@ -285,8 +285,7 @@ def calc_rms_nrmsd(run1: EMRun, run2: EMRun):
     mus2 = run2.mus.values
     nrmsds = calc_nrmsd_groups(mus1, mus2)
     assignment = assign_clusterings(mus1, mus2)
-    return float(np.sqrt(np.mean([np.square(nrmsds[row, col])
-                                  for row, col in enumerate(assignment)])))
+    return float(np.sqrt(np.mean(np.square(nrmsds[assignment]))))
 
 
 def calc_mean_pearson(run1: EMRun, run2: EMRun):
@@ -295,26 +294,4 @@ def calc_mean_pearson(run1: EMRun, run2: EMRun):
     mus2 = run2.mus.values
     correlations = calc_pearson_groups(mus1, mus2)
     assignment = assign_clusterings(mus1, mus2)
-    return float(np.mean([correlations[row, col]
-                          for row, col in enumerate(assignment)]))
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################
+    return float(np.mean(correlations[assignment]))

@@ -5,19 +5,22 @@ from functools import cached_property
 from click import command
 from plotly import graph_objects as go
 
-from .table import TableGraphWriter, PosGraphRunner
 from .color import ColorMapGraph, RelColorMap, SeqColorMap
-from .onetable import OneTableGraph, OneTableRunner, OneTableWriter
+from .onetable import (OneTableRelClusterGroupGraph,
+                       OneTableRelClusterGroupWriter,
+                       OneTableRelClusterGroupRunner)
 from .rel import MultiRelsGraph, OneRelGraph
+from .table import PositionTableRunner
 from .trace import iter_seq_base_bar_traces, iter_seqbar_stack_traces
 from ..core.header import parse_header
+from ..core.run import log_command
 from ..core.seq import POS_NAME
 from ..core.header import K_CLUST_KEY
 
 COMMAND = __name__.split(os.path.extsep)[-1]
 
 
-class ProfileGraph(OneTableGraph, ColorMapGraph, ABC):
+class ProfileGraph(OneTableRelClusterGroupGraph, ColorMapGraph, ABC):
     """ Bar graph of a mutational profile for one table. """
     
     @classmethod
@@ -87,7 +90,7 @@ class MultiRelsProfileGraph(MultiRelsGraph, ProfileGraph):
                 yield (row, 1), trace
 
 
-class ProfileWriter(OneTableWriter, TableGraphWriter):
+class ProfileWriter(OneTableRelClusterGroupWriter):
 
     def get_graph(self, rels_group: str, **kwargs):
         return (OneRelProfileGraph(table=self.table,
@@ -99,35 +102,19 @@ class ProfileWriter(OneTableWriter, TableGraphWriter):
                                            **kwargs))
 
 
-class ProfileRunner(OneTableRunner, PosGraphRunner):
+class ProfileRunner(OneTableRelClusterGroupRunner, PositionTableRunner):
 
     @classmethod
     def get_writer_type(cls):
         return ProfileWriter
+
+    @classmethod
+    @log_command(COMMAND)
+    def run(cls, *args, **kwargs):
+        return super().run(*args, **kwargs)
 
 
 @command(COMMAND, params=ProfileRunner.params())
 def cli(*args, **kwargs):
     """ Bar graph of relationships(s) per position. """
     return ProfileRunner.run(*args, **kwargs)
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

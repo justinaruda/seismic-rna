@@ -1,4 +1,6 @@
 import os
+from pathlib import Path
+from typing import Iterable
 
 from click import command
 
@@ -13,9 +15,9 @@ COMMAND = __name__.split(os.path.extsep)[-1]
 
 @run_func(COMMAND)
 def run(*,
-        ct_file: tuple[str, ...],
-        pmut_paired: tuple[tuple[str, float], ...],
-        pmut_unpaired: tuple[tuple[str, float], ...],
+        ct_file: Iterable[str | Path],
+        pmut_paired: Iterable[tuple[str, float]],
+        pmut_unpaired: Iterable[tuple[str, float]],
         vmut_paired: float,
         vmut_unpaired: float,
         center_fmean: float,
@@ -26,6 +28,9 @@ def run(*,
         force: bool,
         max_procs: int):
     """ Simulate parameter files. """
+    # Since ct_file is used three times, ensure it is not an exhaustible
+    # generator.
+    ct_file = list(ct_file)
     muts_mod.run(ct_file=ct_file,
                  pmut_paired=pmut_paired,
                  pmut_unpaired=pmut_unpaired,
@@ -55,24 +60,3 @@ params = merge_params(clusts_mod.params,
 def cli(*args, **kwargs):
     """ Simulate parameter files. """
     return run(*args, **kwargs)
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

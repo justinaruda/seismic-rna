@@ -15,7 +15,7 @@ from .uniq import UniqReads
 from ..core.array import get_length
 from ..core.header import ClustHeader
 from ..core.logs import logger
-from ..core.mu import calc_nrmsd, calc_pearson
+from ..core.mu import calc_norm_rmsd, calc_pearson
 from ..core.unbias import calc_params, calc_params_observed
 
 LOG_LIKE_PRECISION = 3  # number of digits to round the log likelihood
@@ -24,7 +24,7 @@ LOG_LIKE_PRECISION = 3  # number of digits to round the log likelihood
 def _calc_bic(n_params: int,
               n_data: int,
               log_like: float,
-              min_data_param_ratio: float = 10.):
+              min_data_param_ratio: float = 2.):
     """ Compute the Bayesian Information Criterion (BIC) of a model.
     Typically, the model with the smallest BIC is preferred.
 
@@ -38,7 +38,7 @@ def _calc_bic(n_params: int,
     log_like: float
         Natural logarithm of the likelihood of observing the data given
         the parameters
-    min_data_param_ratio: float = 10.0
+    min_data_param_ratio: float
         In order for the BIC approximation to be valid, the sample size
         must be much larger than the number of estimated parameters.
         Issue a warning if the sample size is less than this ratio times
@@ -349,16 +349,16 @@ class EMRun(object):
         ----------
         seed: int | None = None
             Random number generator seed.
-
-        Returns
-        -------
-        EMRun
-            This instance, in order to permit statements such as
-            ``return [em.run() for em in em_clusterings]``
         """
         logger.routine(
             f"Began {self} with {self._min_iter}-{self._max_iter} iterations"
         )
+        # The random number generator must be initialized with a seed
+        # because on some (but not all) platforms, initializing with no
+        # seed would cause every EMRun to have the same random state and
+        # thus the same trajectory, which defeats the purpose of running
+        # multiple trajectories. By giving every EMRun a unique seed,
+        # the runs can be forced to have different trajectories.
         rng = np.random.default_rng(seed)
         # Choose the concentration parameters using a standard uniform
         # distribution so that the reads assigned to each cluster can
@@ -458,17 +458,21 @@ class EMRun(object):
     @cached_property
     def _null_jackpot_scores(self):
         """ Jackpotting score of each null model. """
-        return bootstrap_jackpot_scores(self._end5s,
-                                        self._end3s,
-                                        self._counts_per_uniq,
-                                        self._p_mut,
-                                        self._p_ends,
-                                        self._p_clust,
-                                        self.uniq_reads.min_mut_gap,
-                                        self._unmasked,
-                                        self.jackpot_score,
-                                        self._jackpot_conf_level,
-                                        self._max_jackpot_quotient)
+        try:
+            return bootstrap_jackpot_scores(self._end5s,
+                                            self._end3s,
+                                            self._counts_per_uniq,
+                                            self._p_mut,
+                                            self._p_ends,
+                                            self._p_clust,
+                                            self.uniq_reads.min_mut_gap,
+                                            self._unmasked,
+                                            self.jackpot_score,
+                                            self._jackpot_conf_level,
+                                            self._max_jackpot_quotient)
+        except Exception as error:
+            logger.warning(error)
+        return np.array([], dtype=float)
 
     @cached_property
     def jackpot_quotient(self):
@@ -501,28 +505,7 @@ class EMRun(object):
     @cached_property
     def min_nrmsd(self):
         """ Minimum normalized RMSD among any pair of clusters. """
-        return self._calc_p_mut_pairs(calc_nrmsd, min)
+        return self._calc_p_mut_pairs(calc_norm_rmsd, min)
 
     def __str__(self):
         return f"{type(self).__name__} {self.uniq_reads}, {self.k} cluster(s)"
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

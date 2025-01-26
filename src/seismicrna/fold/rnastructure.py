@@ -435,6 +435,14 @@ def fold(rna: RNAProfile, *,
     return ct_out
 
 
+class RNAStructureConnectivityTableTitleLineFormatError(ValueError):
+    """ Error in the format of a CT title line from RNAStructure. """
+
+
+class ConnectivityTableAlreadyRetitledError(RuntimeError):
+    """ A CT file was already retitled. """
+
+
 def parse_rnastructure_ct_title(line: str):
     """ Parse a title in a CT file from RNAstructure, in this format:
 
@@ -461,15 +469,22 @@ def parse_rnastructure_ct_title(line: str):
     if m := re.match(r"\s*([0-9]+)\s+ENERGY = (-?[0-9.]+)\s+(\S+)", line):
         length, energy, ref = m.groups()
     else:
-        # If that failed, then parse the line assuming it does not.
-        if m := re.match(r"\s*([0-9]+)\s+(\S+)", line):
-            length, ref = m.groups()
+        # If that failed, then check if the line was already retitled.
+        try:
+            parse_energy(line)
+        except (ValueError, TypeError):
+            # The line was not retitled: parse it assuming it has no
+            # energy term (which happens if no base pairs exist).
+            if m := re.match(r"\s*([0-9]+)\s+(\S+)", line):
+                length, ref = m.groups()
+            else:
+                # The line violated the basic length-and-title format.
+                raise RNAStructureConnectivityTableTitleLineFormatError(line)
+            logger.warning("CT line contains no energy term (probably because "
+                           f"no base pairs were predicted): {repr(line)}")
+            energy = 0.
         else:
-            # The line violated the basic length-and-title format.
-            raise ValueError(f"Failed to parse CT title line: {repr(line)}")
-        logger.warning("CT line contains no energy term (probably because no "
-                       f"base pairs were predicted): {repr(line)}")
-        energy = 0.
+            raise ConnectivityTableAlreadyRetitledError(line)
     return int(length), float(energy), ref
 
 
@@ -576,24 +591,3 @@ def parse_energy(line: str):
         raise ValueError(f"Expected energy to have units of {ENERGY_UNIT}, "
                          f"but got {repr(unit)}")
     return float(value)
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

@@ -1,5 +1,7 @@
 import unittest as ut
+from pathlib import Path
 
+from seismicrna.core.path import get_seismicrna_project_dir
 from seismicrna.core.version import (__version__,
                                      MAJOR,
                                      MINOR,
@@ -69,26 +71,17 @@ class TestParseVersion(ut.TestCase):
                                "8.7.4xyz321b")
 
 
+class TestConsistentVersion(ut.TestCase):
+
+    def test_meson_build(self):
+        project_dir = get_seismicrna_project_dir()
+        if project_dir is not None:
+            meson_build_file = project_dir.joinpath("meson.build")
+            expect = f"project('seismic-rna', 'c', version: '{__version__}')\n"
+            with open(meson_build_file) as f:
+                line = f.readline()
+            self.assertEqual(line, expect)
+
+
 if __name__ == "__main__":
     ut.main()
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

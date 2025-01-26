@@ -7,26 +7,43 @@ from click import command
 
 from .core.arg import (CMD_POOL,
                        arg_input_path,
-                       opt_pool,
+                       opt_pooled,
+                       opt_relate_pos_table,
+                       opt_relate_read_table,
+                       opt_verify_times,
+                       opt_tmp_pfx,
+                       opt_keep_tmp,
                        opt_max_procs,
                        opt_force)
-from .core.data import load_datasets
+from .core.dataset import load_datasets
 from .core.logs import logger
 from .core.run import run_func
 from .core.task import dispatch
+from .core.tmp import release_to_out, with_tmp_dir
 from .core.write import need_write
-from .relate.data import PoolDataset, load_relate_dataset
-from .relate.report import RelateReport, PoolReport
+from .relate.dataset import PoolDataset, load_relate_dataset
+from .relate.report import PoolReport, RelateReport
+from .relate.table import RelateDatasetTabulator
+from .table import tabulate
 
-DEFAULT_POOL = "pooled"
+
+def write_report(out_dir: Path, **kwargs):
+    report = PoolReport(ended=datetime.now(), **kwargs)
+    return report.save(out_dir, force=True)
 
 
+@with_tmp_dir(pass_keep_tmp=False)
 def pool_samples(out_dir: Path,
                  name: str,
                  ref: str,
                  samples: Iterable[str], *,
+                 tmp_dir: Path,
+                 relate_pos_table: bool,
+                 relate_read_table: bool,
+                 verify_times: bool,
+                 n_procs: int,
                  force: bool):
-    """ Combine one or more samples into a pooled sample.
+    """ Pool one or more samples (vertically).
 
     Parameters
     ----------
@@ -38,6 +55,16 @@ def pool_samples(out_dir: Path,
         Name of the reference
     samples: Iterable[str]
         Names of the samples in the pool.
+    tmp_dir: Path
+        Temporary directory.
+    relate_pos_table: bool
+        Tabulate relationships per position for relate data.
+    relate_read_table: bool
+        Tabulate relationships per read for relate data
+    verify_times: bool
+        Verify that report files from later steps have later timestamps.
+    n_procs: bool
+        Number of processors to use.
     force: bool
         Force the report to be written, even if it exists.
 
@@ -60,17 +87,6 @@ def pool_samples(out_dir: Path,
         # would be possible to overwrite a Relate report with a Pool
         # report, rendering the Relate dataset unusable; prevent this.
         if report_file.is_file():
-            # Check whether the report file contains a Relate report.
-            try:
-                RelateReport.load(report_file)
-            except ValueError:
-                # The report file does not contain a Relate report.
-                pass
-            else:
-                # The report file contains a Relate report.
-                raise TypeError(f"Cannot overwrite {RelateReport.__name__} "
-                                f"in {report_file} with {PoolReport.__name__}: "
-                                f"would cause data loss")
             # Check whether the report file contains a Pool report.
             try:
                 PoolReport.load(report_file)
@@ -78,30 +94,54 @@ def pool_samples(out_dir: Path,
                 # The report file does not contain a Pool report.
                 raise TypeError(f"Cannot overwrite {report_file} with "
                                 f"{PoolReport.__name__}: would cause data loss")
-        ended = datetime.now()
-        report = PoolReport(sample=name,
-                            ref=ref,
-                            pooled_samples=samples,
-                            began=began,
-                            ended=ended)
-        report.save(out_dir, force=True)
-    return report_file
+        # To be able to load, the pooled dataset must have access to the
+        # original relate dataset(s) in the temporary directory.
+        for sample in samples:
+            load_relate_dataset(
+                RelateReport.build_path(top=out_dir,
+                                        sample=sample,
+                                        ref=ref),
+                verify_times=verify_times
+            ).link_data_dirs_to_tmp(tmp_dir)
+        # Tabulate the pooled dataset.
+        report_kwargs = dict(sample=name,
+                             ref=ref,
+                             pooled_samples=samples,
+                             began=began)
+        dataset = load_relate_dataset(write_report(tmp_dir, **report_kwargs),
+                                      verify_times=verify_times)
+        tabulate(dataset,
+                 RelateDatasetTabulator,
+                 pos_table=relate_pos_table,
+                 read_table=relate_read_table,
+                 clust_table=False,
+                 n_procs=n_procs,
+                 force=True)
+        # Rewrite the report file with the updated time.
+        release_to_out(out_dir,
+                       tmp_dir,
+                       write_report(tmp_dir, **report_kwargs).parent)
+    return report_file.parent
 
 
 @run_func(CMD_POOL)
-def run(input_path: tuple[str, ...], *,
-        pool: str,
-        # Parallelization
+def run(input_path: Iterable[str | Path], *,
+        pooled: str,
+        relate_pos_table: bool,
+        relate_read_table: bool,
+        verify_times: bool,
+        tmp_pfx: str | Path,
+        keep_tmp: bool,
         max_procs: int,
-        # Effort
         force: bool) -> list[Path]:
     """ Merge samples (vertically) from the Relate step. """
-    if not pool:
-        # Exit immediately if no pool name was given.
-        return list()
+    if not pooled:
+        raise ValueError("No name for the pooled sample was given via --pooled")
     # Group the datasets by output directory and reference name.
     pools = defaultdict(list)
-    for dataset in load_datasets(input_path, load_relate_dataset):
+    for dataset in load_datasets(input_path,
+                                 load_relate_dataset,
+                                 verify_times=verify_times):
         # Check whether the dataset was pooled.
         if isinstance(dataset, PoolDataset):
             # If so, then use all samples in the pool.
@@ -113,49 +153,31 @@ def run(input_path: tuple[str, ...], *,
     # Make each pool of samples.
     return dispatch(pool_samples,
                     max_procs=max_procs,
-                    pass_n_procs=False,
-                    args=[(out_dir, pool, ref, samples)
+                    pass_n_procs=True,
+                    args=[(out_dir, pooled, ref, samples)
                           for (out_dir, ref), samples in pools.items()],
-                    kwargs=dict(force=force))
+                    kwargs=dict(relate_pos_table=relate_pos_table,
+                                relate_read_table=relate_read_table,
+                                verify_times=verify_times,
+                                tmp_pfx=tmp_pfx,
+                                keep_tmp=keep_tmp,
+                                force=force))
 
 
 params = [
     arg_input_path,
-    # Pooling
-    opt_pool,
-    # Parallelization
+    opt_pooled,
+    opt_relate_pos_table,
+    opt_relate_read_table,
+    opt_verify_times,
+    opt_tmp_pfx,
+    opt_keep_tmp,
     opt_max_procs,
-    # Effort
     opt_force,
 ]
 
 
 @command(CMD_POOL, params=params)
-def cli(*args, pool: str, **kwargs):
+def cli(*args, **kwargs):
     """ Merge samples (vertically) from the Relate step. """
-    if not pool:
-        logger.warning(f"{CMD_POOL} expected a name via --pool, but got "
-                       f"{repr(pool)}; defaulting to {repr(DEFAULT_POOL)}")
-        pool = DEFAULT_POOL
-    return run(*args, pool=pool, **kwargs)
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################
+    return run(*args, **kwargs)

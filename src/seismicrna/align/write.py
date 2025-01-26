@@ -4,7 +4,7 @@ from pathlib import Path
 from shutil import rmtree
 from typing import Iterable
 
-from .fqunit import FastqUnit
+from .fqunit import FastqUnit, DuplicateSampleReferenceError
 from .report import AlignRefReport, AlignSampleReport
 from .xamops import (FASTP_PHRED_OUT,
                      run_bowtie2_build,
@@ -48,22 +48,18 @@ def write_tmp_ref_files(tmp_dir: Path,
     corresponds to a FASTQ file from demultiplexing. """
     ref_paths: dict[str, tuple[Path, Path]] = dict()
     if refs:
-        logger.routine("Began writing temporary FASTA files of references "
-                       f"{refs} to {tmp_dir}")
+        logger.routine("Began writing temporary FASTA files")
         # Parse the FASTA only if there are any references to write.
         for record in parse_fasta(refset_path, DNA):
             ref, _ = record
             if ref in refs:
-                logger.detail(f"Writing FASTA file of reference {repr(ref)}")
                 # Write the reference sequence to a temporary FASTA file
                 # only if at least one demultiplexed FASTQ file uses it.
-                ref_path = path.build(*path.FASTA_STAGE_SEGS,
-                                      top=tmp_dir,
-                                      stage=path.STAGE_ALIGN_INDEX_DEMULT,
-                                      ref=ref,
-                                      ext=refset_path.suffix)
-                # Create the parent directory.
-                ref_path.parent.mkdir(parents=True, exist_ok=True)
+                ref_path = path.buildpar(*path.FASTA_STAGE_SEGS,
+                                         top=tmp_dir,
+                                         stage=path.STAGE_ALIGN_INDEX_DEMULT,
+                                         ref=ref,
+                                         ext=refset_path.suffix)
                 try:
                     # Write the temporary FASTA file.
                     write_fasta(ref_path, [record])
@@ -80,6 +76,7 @@ def write_tmp_ref_files(tmp_dir: Path,
                     ref_paths[ref] = ref_path, index_prefix
             else:
                 logger.detail(f"Skipped unused reference {repr(ref)}")
+        logger.routine("Ended writing temporary FASTA files")
     missing = sorted(refs - set(ref_paths.keys()))
     if missing:
         # If any references in refs do not have sequences, then log an
@@ -474,13 +471,13 @@ def fq_pipeline(fq_inp: FastqUnit,
     align_dir = path.builddir(*path.CMD_DIR_SEGS,
                               top=out_dir,
                               sample=sample,
-                              cmd=path.CMD_ALIGN_DIR)
+                              cmd=path.ALIGN_STEP)
     # Optionally trim the reads with Fastp, and then align them to the
     # reference sequence with Bowtie2.
     xam_whole = path.buildpar(*path.XAM_STAGE_SEGS,
                               top=tmp_dir,
                               sample=sample,
-                              cmd=path.CMD_ALIGN_DIR,
+                              cmd=path.ALIGN_STEP,
                               stage=path.STAGE_ALIGN_MAP,
                               ref=refset,
                               ext=path.BAM_EXT)
@@ -681,8 +678,9 @@ def fqs_pipeline(fq_units: list[FastqUnit],
     # Get the name of the reference for every demultiplexed FASTQ.
     tmp_refs = set(filter(None, (fq_unit.ref for fq_unit in fq_units)))
     if tmp_refs:
-        logger.detail(f"Found {len(tmp_refs)} references among demultiplexed "
-                      f"FASTQ files: {sorted(tmp_refs)}")
+        logger.detail(
+            f"Found {len(tmp_refs)} references among demultiplexed FASTQ files"
+        )
     # Write a temporary FASTA file and Bowtie2 index for each
     # demultiplexed FASTQ.
     tmp_fasta_paths = write_tmp_ref_files(tmp_dir,
@@ -700,7 +698,6 @@ def fqs_pipeline(fq_units: list[FastqUnit],
     iter_args: list[tuple[FastqUnit, Path, Path]] = list()
     # One alignment task will be created for each FASTQ unit.
     for fq_unit in fq_units:
-        logger.detail(f"Preparing to align {fq_unit}")
         if fq_unit.ref is not None:
             logger.detail(f"{fq_unit} contains reads from 1 reference, "
                           f"{repr(fq_unit.ref)}")
@@ -718,7 +715,6 @@ def fqs_pipeline(fq_units: list[FastqUnit],
             # Add these arguments to the lists of arguments that will be
             # passed to fq_pipeline.
             iter_args.append((fq_unit, tmp_fasta, tmp_index))
-            logger.detail(f"Planning to align {fq_unit} to {tmp_fasta}")
         else:
             logger.detail(f"{fq_unit} may contain reads from ≥ 1 reference")
             # If the FASTQ may contain reads from ≥ 1 references,
@@ -730,14 +726,10 @@ def fqs_pipeline(fq_units: list[FastqUnit],
                 refset = path.parse(main_fasta, path.FastaSeg)[path.REF]
                 # Determine the path of the temporary Bowtie 2 index
                 # of the main FASTA file.
-                main_index = path.build(*path.FASTA_INDEX_DIR_STAGE_SEGS,
-                                        top=tmp_dir,
-                                        stage=path.STAGE_ALIGN_INDEX,
-                                        ref=refset)
-                # Make its parent directory if it does not exist.
-                main_index.parent.mkdir(parents=True, exist_ok=True)
-                logger.detail(f"Created directory {main_index.parent} "
-                              f"for Bowtie 2 index of {main_fasta}")
+                main_index = path.buildpar(*path.FASTA_INDEX_DIR_STAGE_SEGS,
+                                           top=tmp_dir,
+                                           stage=path.STAGE_ALIGN_INDEX,
+                                           ref=refset)
                 # Build the Bowtie2 index.
                 try:
                     run_bowtie2_build(main_fasta,
@@ -747,8 +739,9 @@ def fqs_pipeline(fq_units: list[FastqUnit],
                     # the same directory as the new index.
                     fasta_link = main_index.with_suffix(main_fasta.suffix)
                     fasta_link.symlink_to(main_fasta)
-                    logger.detail("Created a temporary symbolic link "
-                                  f"{fasta_link} pointing to {main_fasta}")
+                    logger.detail(
+                        f"Symbolically linked {fasta_link} to {main_fasta}"
+                    )
                     # Add the FASTA link and the Bowtie 2 index to the
                     # set of files to delete after alignment finishes.
                     # Being deleted is the only purpose of fasta_link.
@@ -765,7 +758,6 @@ def fqs_pipeline(fq_units: list[FastqUnit],
             # alignment finishes; but only in the latter case is it
             # added to tmp_fasta_paths.
             iter_args.append((fq_unit, main_fasta, main_index))
-            logger.detail(f"Planning to align {fq_unit} to {main_fasta}")
     # Generate alignment map (XAM) files.
     xam_dirs = dispatch(fq_pipeline,
                         max_procs,
@@ -774,17 +766,16 @@ def fqs_pipeline(fq_units: list[FastqUnit],
                                     tmp_dir=tmp_dir,
                                     keep_tmp=keep_tmp,
                                     **kwargs))
-    # Return the final alignment map (XAM) directories.
     logger.routine(f"Ended running the alignment pipeline")
+    # Return the final alignment map (XAM) directories.
     return xam_dirs
 
 
-def figure_alignments(fq_units: list[FastqUnit], refs: set[str]):
-    """ Every expected alignment of a sample to a reference. """
+def list_alignments(fq_units: list[FastqUnit], refs: set[str]):
+    """ List every expected alignment of a sample to a reference. """
+    logger.routine("Began listing alignments")
     # Map each combination of a sample and reference to a FASTQ unit.
     alignments: dict[tuple[str, str], FastqUnit] = dict()
-    # Keep track of any duplicate sample-reference pairs.
-    duplicates: set[tuple[str, str]] = set()
     for fq_unit in fq_units:
         # Determine which references the FASTQ reads could come from.
         if fq_unit.ref is None:
@@ -794,28 +785,20 @@ def figure_alignments(fq_units: list[FastqUnit], refs: set[str]):
             # The FASTQ contains reads from only one reference.
             # Confirm that the reference actually exists.
             if fq_unit.ref not in refs:
-                logger.error(f"No reference {repr(fq_unit.ref)} for {fq_unit}")
+                logger.error(f"Reference {repr(fq_unit.ref)} does not exist")
                 continue
             fq_refs = {fq_unit.ref}
         # Add each sample-reference pair to the expected alignments.
+        sample = fq_unit.sample
         for ref in fq_refs:
-            sample_ref = fq_unit.sample, ref
-            if sample_ref in duplicates:
-                # Skip the sample-reference pair if it is a duplicate.
-                continue
-            try:
-                # Test if the sample-reference pair is already in the
-                # dict of alignments. If so, then remove it.
-                alignments.pop(sample_ref)
-            except KeyError:
-                # If not, then add the FASTQ to the dict of alignments,
-                # keyed by its sample-reference pair.
-                alignments[sample_ref] = fq_unit
-            else:
-                # If so, then flag it as a duplicate.
-                logger.warning(f"Duplicate sample and reference: {sample_ref}")
-                duplicates.add(sample_ref)
-    # Return a duplicate-free dict of alignments.
+            logger.detail(
+                f"Adding reference {repr(ref)} for sample {repr(sample)}"
+            )
+            sample_ref = sample, ref
+            if sample_ref in alignments:
+                raise DuplicateSampleReferenceError(sample_ref)
+            alignments[sample_ref] = fq_unit
+    logger.routine("Ended listing alignments")
     return alignments
 
 
@@ -859,12 +842,9 @@ def merge_nondemult_fqs(fq_units: Iterable[FastqUnit]):
     return list(merged.values())
 
 
-def list_fqs_xams(fq_units: list[FastqUnit],
-                  refs: set[str],
+def list_fqs_xams(alignments: dict[tuple[str, str], FastqUnit],
                   out_dir: Path):
     """ List every FASTQ to align and every extant XAM file. """
-    # Determine all possible alignments of a sample and reference.
-    alignments = figure_alignments(fq_units, refs)
     # Determine which alignments need to be or have already been run.
     fqs_missing, xams_extant = check_fqs_xams(alignments, out_dir)
     # Merge entries for each non-demultiplexed FASTQ.
@@ -880,17 +860,19 @@ def align_samples(fq_units: list[FastqUnit],
     """ Run the alignment pipeline and return a tuple of all XAM files
     from the pipeline. """
     if not fq_units:
-        logger.warning("No FASTQ files or pairs of FASTQ files were given")
+        logger.detail("No FASTQ files or pairs of files were given to align")
         return list()
+    # List the names of all reference sequences.
+    refs = set(parse_fasta(fasta, None))
+    # List all alignments and check for duplicates.
+    alignments = list_alignments(fq_units, refs)
     if force:
         # force all alignments.
         fqs_to_align = fq_units
         xams_extant = set()
     else:
-        # Get the names of all reference sequences.
-        refs = set(parse_fasta(fasta, None))
         # Run only the alignments whose outputs do not yet exist.
-        fqs_to_align, xams_extant = list_fqs_xams(fq_units, refs, out_dir)
+        fqs_to_align, xams_extant = list_fqs_xams(alignments, out_dir)
     if fqs_to_align:
         # Align all FASTQs that need to be aligned.
         xam_dirs_new = set(fqs_pipeline(fqs_to_align,
@@ -898,28 +880,8 @@ def align_samples(fq_units: list[FastqUnit],
                                         out_dir=out_dir,
                                         **kwargs))
     else:
-        logger.warning("All given FASTQ files have already been aligned")
+        logger.warning("All given FASTQ files have already been aligned: "
+                       "use --force to overwrite")
         xam_dirs_new = set()
     # Merge the existing and new XAM paths into a tuple of strings.
     return list({xam.parent for xam in xams_extant} | xam_dirs_new)
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

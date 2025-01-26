@@ -40,12 +40,12 @@ from ..core.arg import (CMD_MASK,
                         opt_force,
                         optional_path,
                         extra_defaults)
-from ..core.data import load_datasets
+from ..core.dataset import load_datasets
 from ..core.logs import logger
 from ..core.run import run_func
 from ..core.seq import DNA, RefRegions
 from ..core.task import dispatch
-from ..relate.data import load_relate_dataset
+from ..relate.dataset import load_relate_dataset
 
 
 def load_regions(input_path: Iterable[str | Path],
@@ -53,7 +53,7 @@ def load_regions(input_path: Iterable[str | Path],
                  primers: Iterable[tuple[str, DNA, DNA]],
                  primer_gap: int,
                  regions_file: Path | None = None):
-    """ Open regions of relate reports. """
+    """ Load regions of relate reports. """
     # Load all datasets, grouped by their reference names.
     datasets = defaultdict(list)
     for dataset in load_datasets(input_path, load_relate_dataset):
@@ -62,8 +62,8 @@ def load_regions(input_path: Iterable[str | Path],
         except Exception as error:
             logger.error(error)
     # Determine the regions for each reference in the datasets.
-    regions = RefRegions({(loader.ref, loader.refseq)
-                          for loader in chain(*datasets.values())},
+    regions = RefRegions({(dataset.ref, dataset.refseq)
+                          for dataset in chain(*datasets.values())},
                          regs_file=regions_file,
                          coords=coords,
                          primers=primers,
@@ -72,24 +72,25 @@ def load_regions(input_path: Iterable[str | Path],
     return datasets, regions
 
 
-@run_func(CMD_MASK, with_tmp=True, extra_defaults=extra_defaults)
-def run(input_path: tuple[str, ...], *,
-        tmp_dir: Path,
+@run_func(CMD_MASK, extra_defaults=extra_defaults)
+def run(input_path: Iterable[str | Path], *,
+        tmp_pfx: str | Path,
+        keep_tmp: bool,
         # Regions
-        mask_coords: tuple[tuple[str, int, int], ...],
-        mask_primers: tuple[tuple[str, DNA, DNA], ...],
+        mask_coords: Iterable[tuple[str, int, int]],
+        mask_primers: Iterable[tuple[str, DNA, DNA]],
         primer_gap: int,
         mask_regions_file: str | None,
         # Mutation counting
         mask_del: bool,
         mask_ins: bool,
-        mask_mut: tuple[str, ...],
+        mask_mut: Iterable[str],
         # Filtering
         mask_polya: int,
         mask_gu: bool,
-        mask_pos: tuple[tuple[str, int], ...],
+        mask_pos: Iterable[tuple[str, int]],
         mask_pos_file: str | None,
-        mask_read: tuple[str, ...],
+        mask_read: Iterable[str],
         mask_read_file: str | None,
         mask_discontig: bool,
         min_ninfo_pos: int,
@@ -113,7 +114,6 @@ def run(input_path: tuple[str, ...], *,
         # Effort
         force: bool) -> list[Path]:
     """ Define mutations and regions to filter reads and positions. """
-    # Load all Relate datasets and get the regions for each.
     datasets, regions = load_regions(
         input_path,
         coords=mask_coords,
@@ -121,40 +121,37 @@ def run(input_path: tuple[str, ...], *,
         primer_gap=primer_gap,
         regions_file=optional_path(mask_regions_file)
     )
-    # List the datasets and their regions.
-    args = [(dataset, region)
-            for ref, ref_datasets in datasets.items()
-            for dataset, region in product(ref_datasets, regions.list(ref))]
-    # Define the keyword arguments.
-    kwargs = dict(tmp_dir=tmp_dir,
-                  mask_del=mask_del,
-                  mask_ins=mask_ins,
-                  mask_mut=mask_mut,
-                  mask_polya=mask_polya,
-                  mask_gu=mask_gu,
-                  mask_pos=list(mask_pos),
-                  mask_pos_file=optional_path(mask_pos_file),
-                  mask_read=list(mask_read),
-                  mask_read_file=optional_path(mask_read_file),
-                  mask_discontig=mask_discontig,
-                  min_ncov_read=min_ncov_read,
-                  min_finfo_read=min_finfo_read,
-                  max_fmut_read=max_fmut_read,
-                  min_mut_gap=min_mut_gap,
-                  min_ninfo_pos=min_ninfo_pos,
-                  max_fmut_pos=max_fmut_pos,
-                  quick_unbias=quick_unbias,
-                  quick_unbias_thresh=quick_unbias_thresh,
-                  max_mask_iter=max_mask_iter,
-                  mask_pos_table=mask_pos_table,
-                  mask_read_table=mask_read_table,
-                  brotli_level=brotli_level,
-                  force=force)
-    # Call the mutations and filter the relation vectors.
     return dispatch(mask_region,
                     max_procs=max_procs,
-                    args=args,
-                    kwargs=kwargs)
+                    args=[(dataset, region)
+                          for ref, ref_datasets in datasets.items()
+                          for dataset, region in product(ref_datasets,
+                                                         regions.list(ref))],
+                    kwargs=dict(tmp_pfx=tmp_pfx,
+                                keep_tmp=keep_tmp,
+                                mask_del=mask_del,
+                                mask_ins=mask_ins,
+                                mask_mut=mask_mut,
+                                mask_polya=mask_polya,
+                                mask_gu=mask_gu,
+                                mask_pos=list(mask_pos),
+                                mask_pos_file=optional_path(mask_pos_file),
+                                mask_read=list(mask_read),
+                                mask_read_file=optional_path(mask_read_file),
+                                mask_discontig=mask_discontig,
+                                min_ncov_read=min_ncov_read,
+                                min_finfo_read=min_finfo_read,
+                                max_fmut_read=max_fmut_read,
+                                min_mut_gap=min_mut_gap,
+                                min_ninfo_pos=min_ninfo_pos,
+                                max_fmut_pos=max_fmut_pos,
+                                quick_unbias=quick_unbias,
+                                quick_unbias_thresh=quick_unbias_thresh,
+                                max_mask_iter=max_mask_iter,
+                                mask_pos_table=mask_pos_table,
+                                mask_read_table=mask_read_table,
+                                brotli_level=brotli_level,
+                                force=force))
 
 
 params = [
@@ -206,24 +203,3 @@ params = [
 def cli(*args, **kwargs):
     """ Define mutations and regions to filter reads and positions. """
     return run(*args, **kwargs)
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

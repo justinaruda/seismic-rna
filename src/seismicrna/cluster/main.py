@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Iterable
 
 from click import command
 
@@ -32,11 +33,13 @@ from ..core.arg import (CMD_CLUSTER,
                         opt_force)
 from ..core.run import run_func
 from ..core.task import as_list_of_tuples, dispatch
-from ..mask.data import load_mask_dataset
+from ..mask.dataset import load_mask_dataset
 
 
-@run_func(CMD_CLUSTER, with_tmp=True)
-def run(input_path: tuple[str, ...], *,
+@run_func(CMD_CLUSTER)
+def run(input_path: Iterable[str | Path], *,
+        tmp_pfx: str | Path,
+        keep_tmp: bool,
         min_clusters: int,
         max_clusters: int,
         em_runs: int,
@@ -58,19 +61,18 @@ def run(input_path: tuple[str, ...], *,
         verify_times: bool,
         brotli_level: int,
         max_procs: int,
-        force: bool,
-        tmp_dir: Path) -> list[Path]:
+        force: bool) -> list[Path]:
     """ Infer alternative structures by clustering reads' mutations. """
-    # Find the mask report files.
     report_files = path.find_files_chain(
         input_path, load_mask_dataset.report_path_seg_types
     )
-    # Cluster each mask dataset.
     return dispatch(cluster,
                     max_procs,
                     pass_n_procs=True,
                     args=as_list_of_tuples(report_files),
-                    kwargs=dict(min_clusters=min_clusters,
+                    kwargs=dict(tmp_pfx=tmp_pfx,
+                                keep_tmp=keep_tmp,
+                                min_clusters=min_clusters,
                                 max_clusters=max_clusters,
                                 em_runs=em_runs,
                                 min_iter=min_em_iter,
@@ -90,8 +92,7 @@ def run(input_path: tuple[str, ...], *,
                                 cluster_abundance_table=cluster_abundance_table,
                                 verify_times=verify_times,
                                 brotli_level=brotli_level,
-                                force=force,
-                                tmp_dir=tmp_dir))
+                                force=force))
 
 
 params = [
@@ -132,26 +133,5 @@ params = [
 
 @command(CMD_CLUSTER, params=params)
 def cli(*args, **kwargs):
-    """ Infer alternative structures by clustering reads' mutations. """
+    """ Infer structure ensembles by clustering reads' mutations. """
     return run(*args, **kwargs)
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

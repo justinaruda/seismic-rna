@@ -290,6 +290,12 @@ class RelPattern(object):
         """ Fits every mutation. """
         return cls(HalfRelPattern.muts(), HalfRelPattern.refs())
 
+    @classmethod
+    @cache
+    def matches(cls):
+        """ Fits every match. """
+        return cls(HalfRelPattern.refs(), HalfRelPattern.muts())
+
     def __init__(self, yes: HalfRelPattern, nos: HalfRelPattern):
         self.yes = yes
         self.nos = nos
@@ -301,15 +307,12 @@ class RelPattern(object):
         is_nos = self.nos.fits(base, rel)
         return is_yes != is_nos, is_yes
 
-    def intersect(self, other: RelPattern | None, invert: bool = False):
+    def intersect(self, other: RelPattern | None):
         """ Intersect the pattern with another. """
-        if other is not None:
-            yes = self.yes.intersect(other.yes)
-            nos = self.nos.intersect(other.nos)
-        else:
-            yes = self.yes
-            nos = self.nos
-        return self.__class__(nos, yes) if invert else self.__class__(yes, nos)
+        if other is None:
+            return self
+        return self.__class__(self.yes.intersect(other.yes),
+                              self.nos.intersect(other.nos))
 
     def invert(self):
         """ Swap the `yes` and `nos` patterns. """
@@ -325,24 +328,3 @@ class RelPattern(object):
         if not isinstance(other, self.__class__):
             return NotImplemented
         return self.yes == other.yes and self.nos == other.nos
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

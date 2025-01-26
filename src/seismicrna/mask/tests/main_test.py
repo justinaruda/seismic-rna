@@ -12,7 +12,7 @@ from seismicrna.core.io.seq import RefseqIO
 from seismicrna.core.logs import Level, set_config
 from seismicrna.core.seq.region import Region
 from seismicrna.core.seq.xna import DNA
-from seismicrna.mask.data import MaskMutsDataset
+from seismicrna.mask.dataset import MaskMutsDataset
 from seismicrna.mask.main import run as run_mask
 from seismicrna.pool import run as run_pool
 from seismicrna.relate.io import RelateBatchIO, ReadNamesBatchIO
@@ -117,6 +117,7 @@ def write_datasets(out_dir: Path,
                               overhangs=True,
                               insert3=True,
                               ambindel=False,
+                              ambindel_max_iter=0,
                               clip_end5=0,
                               clip_end3=0,
                               min_reads=0,
@@ -180,7 +181,7 @@ class TestMask(ut.TestCase, ABC):
                                            self.reads_per_batch(),
                                            self.end5s(),
                                            self.end3s())
-        set_config(verbosity=Level.SEVERE, raise_on_error=True)
+        set_config(verbosity=Level.FATAL, raise_on_error=True)
 
     def tearDown(self):
         rmtree(self._out_dir)
@@ -465,24 +466,3 @@ class TestMaskSingle1Sample1Batch(TestMaskSingle,
 
 if __name__ == "__main__":
     ut.main()
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

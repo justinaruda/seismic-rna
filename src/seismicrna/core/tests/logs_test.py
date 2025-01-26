@@ -27,13 +27,14 @@ class TestLoggerClass(ut.TestCase):
 class TestLevels(ut.TestCase):
 
     def test_levels(self):
-        self.assertEqual(Level.SEVERE, -3)
+        self.assertEqual(Level.FATAL, -3)
         self.assertEqual(Level.ERROR, -2)
         self.assertEqual(Level.WARNING, -1)
-        self.assertEqual(Level.COMMAND, 0)
+        self.assertEqual(Level.STATUS, 0)
         self.assertEqual(Level.TASK, 1)
-        self.assertEqual(Level.ROUTINE, 2)
-        self.assertEqual(Level.DETAIL, 3)
+        self.assertEqual(Level.ACTION, 2)
+        self.assertEqual(Level.ROUTINE, 3)
+        self.assertEqual(Level.DETAIL, 4)
 
 
 class TestRestoreConfig(ut.TestCase):
@@ -79,10 +80,10 @@ class TestExcInfo(ut.TestCase):
 
     @restore_config
     def test_exc_info(self):
-        for verbosity in [Level.COMMAND,
+        for verbosity in [Level.STATUS,
                           Level.WARNING,
                           Level.ERROR,
-                          Level.SEVERE]:
+                          Level.FATAL]:
             set_config(verbosity=verbosity)
             self.assertFalse(exc_info())
         for verbosity in [Level.DETAIL,
@@ -96,7 +97,7 @@ class TestLoggingRaiseOnError(ut.TestCase):
 
     @restore_config
     def test_raise_on_error(self):
-        set_config(verbosity=(Level.SEVERE - 1), raise_on_error=True)
+        set_config(verbosity=(Level.FATAL - 1), raise_on_error=True)
         logger.warning("An error has occurred")
         self.assertRaisesRegex(RuntimeError,
                                "An error has occurred",
@@ -104,7 +105,7 @@ class TestLoggingRaiseOnError(ut.TestCase):
                                "An error has occurred")
         self.assertRaisesRegex(RuntimeError,
                                "A fatal error has occurred",
-                               logger.severe,
+                               logger.fatal,
                                "A fatal error has occurred")
         logger.warning(ZeroDivisionError("Cannot divide by 0"))
         self.assertRaisesRegex(ZeroDivisionError,
@@ -113,17 +114,17 @@ class TestLoggingRaiseOnError(ut.TestCase):
                                ZeroDivisionError("Cannot divide by 0"))
         self.assertRaisesRegex(ZeroDivisionError,
                                "Cannot divide by 0",
-                               logger.severe,
+                               logger.fatal,
                                ZeroDivisionError("Cannot divide by 0"))
 
     @restore_config
     def test_no_raise_on_error(self):
-        set_config(verbosity=(Level.SEVERE - 1), raise_on_error=False)
+        set_config(verbosity=(Level.FATAL - 1), raise_on_error=False)
         # None of these calls should raise an error.
         logger.error("An error has occurred")
-        logger.severe("A fatal error has occurred")
+        logger.fatal("A fatal error has occurred")
         logger.error(ZeroDivisionError("Cannot divide by 0"))
-        logger.severe(ZeroDivisionError("Cannot divide by 0"))
+        logger.fatal(ZeroDivisionError("Cannot divide by 0"))
 
 
 class TestEraseConfig(ut.TestCase):
@@ -235,24 +236,3 @@ class TestGetConfig(ut.TestCase):
 
 if __name__ == "__main__":
     ut.main()
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

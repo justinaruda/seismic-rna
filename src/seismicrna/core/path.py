@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import pathlib
 import re
+import shutil
 from collections import Counter
 from functools import cache, cached_property, partial, wraps
 from itertools import chain, product
@@ -30,15 +31,17 @@ STR_PATTERN = f"([{STR_CHARS}]+)"
 INT_PATTERN = f"([{INT_CHARS}]+)"
 RE_PATTERNS = {str: STR_PATTERN, int: INT_PATTERN, pathlib.Path: PATH_PATTERN}
 
-# Directories for commands
-CMD_ALIGN_DIR = "align"
-CMD_REL_DIR = "relate"
-CMD_MASK_DIR = "mask"
-CMD_CLUST_DIR = "cluster"
-CMD_DECONV_DIR = "deconvolve"
-CMD_LIST_DIR = "list"
-CMD_FOLD_DIR = "fold"
-CMD_GRAPH_DIR = "graph"
+
+# Names of steps
+ALIGN_STEP = "align"
+RELATE_STEP = "relate"
+NAMES_STEP = "names"
+MASK_STEP = "mask"
+CLUSTER_STEP = "cluster"
+DECONVOLVE_STEP = "deconvolve"
+LIST_STEP = "list"
+FOLD_STEP = "fold"
+GRAPH_STEP = "graph"
 
 # Directories for simulation
 
@@ -72,7 +75,7 @@ CLUST_PARAMS_DIR = "parameters"
 CLUST_STATS_DIR = "statistics"
 CLUST_COUNTS_DIR = "read-counts"
 
-TABLES = (CMD_REL_DIR, CMD_MASK_DIR, CMD_CLUST_DIR, CMD_DECONV_DIR)
+TABLES = (RELATE_STEP, MASK_STEP, CLUSTER_STEP, DECONVOLVE_STEP)
 
 # File extensions
 
@@ -130,15 +133,19 @@ PARAM_CLUSTS_EXT = f".clusts{CSV_EXT}"
 # Path Exceptions ######################################################
 
 class PathError(Exception):
-    """ Any error involving a path """
+    """ Any error involving a path. """
 
 
 class PathTypeError(PathError, TypeError):
-    """ Use of the wrong type of path or segment """
+    """ Use of the wrong type of path or segment. """
 
 
 class PathValueError(PathError, ValueError):
-    """ Invalid value of a path segment field """
+    """ Invalid value of a path segment field. """
+
+
+class WrongFileExtensionError(PathValueError):
+    """ A file has the wrong extension. """
 
 
 # Path Functions #######################################################
@@ -166,6 +173,45 @@ def sanitize(path: str | pathlib.Path, strict: bool = False):
         Absolute, normalized, symlink-free path.
     """
     return pathlib.Path(path).resolve(strict=strict)
+
+
+@cache
+def get_seismicrna_source_dir():
+    """ SEISMIC-RNA source directory, named seismicrna, containing
+    __init__.py and the top-level modules and subpackages. """
+    seismicrna_src_dir = sanitize(__file__, strict=True).parent.parent
+    try:
+        from seismicrna import __file__ as seismicrna_file
+    except ImportError:
+        seismicrna_file = None
+    if seismicrna_file:
+        seismicrna_parent = sanitize(seismicrna_file).parent
+        if seismicrna_parent != seismicrna_src_dir:
+            raise PathValueError("Inconsistent source directory: "
+                                 f"{seismicrna_src_dir} ≠ {seismicrna_parent}")
+    else:
+        logger.warning("seismicrna is not installed: skipped verifying path")
+    name = "seismicrna"
+    if seismicrna_src_dir.name != name:
+        raise PathValueError(f"Source directory {seismicrna_src_dir} "
+                             f"is not named {repr(name)}")
+    return seismicrna_src_dir
+
+
+@cache
+def get_seismicrna_project_dir():
+    """ SEISMIC-RNA project directory, named seismic-rna, containing
+    src, pyproject.toml, and all other project files. Will exist if the
+    entire SEISMIC-RNA project has been downloaded, e.g. from GitHub,
+    but not if SEISMIC-RNA was only installed using pip or conda. """
+    seismicrna_prj_dir = get_seismicrna_source_dir().parent.parent
+    name = "seismic-rna"
+    if seismicrna_prj_dir.name != name:
+        # It is fine if the project directory does not exist because
+        # installing SEISMIC-RNA using pip or conda installs only the
+        # source directory, but not the project directory.
+        return None
+    return seismicrna_prj_dir
 
 
 # Path Fields ##########################################################
@@ -212,7 +258,7 @@ class Field(object):
                  options: Iterable = (),
                  is_ext: bool = False):
         self.dtype = dtype
-        self.options = tuple(options)
+        self.options = list(options)
         if not all(isinstance(option, self.dtype) for option in self.options):
             raise PathTypeError("All options of a field must be of its type")
         self.is_ext = is_ext
@@ -262,20 +308,20 @@ class Field(object):
 # Fields
 TopField = Field(pathlib.Path)
 NameField = Field(str)
-CmdField = Field(str, [CMD_ALIGN_DIR,
-                       CMD_REL_DIR,
-                       CMD_MASK_DIR,
-                       CMD_CLUST_DIR,
-                       CMD_DECONV_DIR,
-                       CMD_LIST_DIR,
-                       CMD_FOLD_DIR,
-                       CMD_GRAPH_DIR])
+CmdField = Field(str, [ALIGN_STEP,
+                       RELATE_STEP,
+                       MASK_STEP,
+                       CLUSTER_STEP,
+                       DECONVOLVE_STEP,
+                       LIST_STEP,
+                       FOLD_STEP,
+                       GRAPH_STEP])
 StageField = Field(str, STAGES)
 IntField = Field(int)
 ClustRunResultsField = Field(str, CLUST_PARAMS)
 PosTableField = Field(str, TABLES)
 ReadTableField = Field(str, TABLES)
-AbundanceField = Field(str, [CMD_CLUST_DIR, CMD_DECONV_DIR])
+AbundanceField = Field(str, [CLUSTER_STEP, DECONVOLVE_STEP])
 
 # File extensions
 TextExt = Field(str, [TXT_EXT], is_ext=True)
@@ -299,6 +345,20 @@ GraphExt = Field(str, GRAPH_EXTS, is_ext=True)
 WebAppFileExt = Field(str, [JSON_EXT], is_ext=True)
 SvgExt = Field(str, [SVG_EXT], is_ext=True)
 KtsExt = Field(str, [KTS_EXT], is_ext=True)
+
+
+def check_file_extension(file: pathlib.Path,
+                         extensions: Iterable[str] | Field):
+    if isinstance(extensions, Field):
+        if not extensions.is_ext:
+            raise PathValueError(f"{extensions} is not an extension field")
+        extensions = extensions.options
+    elif not isinstance(extensions, (tuple, list, set, dict)):
+        extensions = set(extensions)
+    if file.suffix not in extensions:
+        raise WrongFileExtensionError(
+            f"Extension of {file} is not one of {extensions}"
+        )
 
 
 # Path Segments ########################################################
@@ -352,10 +412,10 @@ class Segment(object):
         return self.field_types.get(EXT)
 
     @cached_property
-    def exts(self) -> tuple[str, ...]:
+    def exts(self) -> list[str]:
         """ Valid file extensions of the segment. """
         if self.ext_type is None:
-            return tuple()
+            return list()
         if not self.ext_type.options:
             raise ValueError(f"{self} extension {self.ext_type} has no options")
         return self.ext_type.options
@@ -466,36 +526,44 @@ AlignRefRepSeg = Segment("align-ref-rep",
                          frmt="{ref}__align-report{ext}")
 
 # Relate
-RefseqFileSeg = Segment("refseq-file", {EXT: RefseqFileExt}, frmt="refseq{ext}")
-ReadNamesBatSeg = Segment("name-bat",
+RefseqFileSeg = Segment("refseq-file",
+                        {EXT: RefseqFileExt},
+                        frmt="refseq{ext}")
+ReadNamesBatSeg = Segment("names-bat",
                           {BATCH: IntField, EXT: BatchExt},
-                          frmt="names-batch-{batch}{ext}")
-RelateBatSeg = Segment("rel-bat",
+                          frmt=NAMES_STEP + "-batch-{batch}{ext}")
+RelateBatSeg = Segment(f"relate-bat",
                        {BATCH: IntField, EXT: BatchExt},
-                       frmt="relate-batch-{batch}{ext}")
-RelateRepSeg = Segment("rel-rep", {EXT: ReportExt}, frmt="relate-report{ext}")
+                       frmt=RELATE_STEP + "-batch-{batch}{ext}")
+RelateRepSeg = Segment(f"relate-rep",
+                       {EXT: ReportExt},
+                       frmt=RELATE_STEP + "-report{ext}")
 
 # Mask
-MaskBatSeg = Segment("mask-bat",
+MaskBatSeg = Segment(f"{MASK_STEP}-bat",
                      {BATCH: IntField, EXT: BatchExt},
-                     frmt="mask-batch-{batch}{ext}")
-MaskRepSeg = Segment("mask-rep", {EXT: ReportExt}, frmt="mask-report{ext}")
+                     frmt=MASK_STEP + "-batch-{batch}{ext}")
+MaskRepSeg = Segment("mask-rep",
+                     {EXT: ReportExt},
+                     frmt=MASK_STEP + "-report{ext}")
 
 # Cluster
-ClustParamsDirSeg = Segment("clust-run-res-dir",
+ClustParamsDirSeg = Segment(f"cluster-run-res-dir",
                             {},
                             frmt=CLUST_PARAMS_DIR,
                             order=10)
-ClustParamsFileSeg = Segment("clust-run-res",
+ClustParamsFileSeg = Segment(f"cluster-run-res",
                              {TABLE: ClustRunResultsField,
                               NCLUST: IntField,
                               RUN: IntField,
                               EXT: ClustTabExt},
                              frmt="k{k}-r{run}_{table}{ext}")
-ClustBatSeg = Segment("clust-bat",
+ClustBatSeg = Segment("cluster-bat",
                       {BATCH: IntField, EXT: BatchExt},
-                      frmt="cluster-batch-{batch}{ext}")
-ClustRepSeg = Segment("clust-rep", {EXT: ReportExt}, frmt="cluster-report{ext}")
+                      frmt=CLUSTER_STEP + "-batch-{batch}{ext}")
+ClustRepSeg = Segment("cluster-rep",
+                      {EXT: ReportExt},
+                      frmt=CLUSTER_STEP + "-report{ext}")
 
 # Deconvolve
 DeconvBatSeg = Segment("deconv-bat",
@@ -643,7 +711,87 @@ class Path(object):
         return self.as_str
 
 
+# mkdir/symlink/rmdir.
+
+
+def mkdir_if_needed(path: pathlib.Path | str):
+    """ Create a directory and log that event if it does not exist. """
+    path = sanitize(path, strict=False)
+    try:
+        path.mkdir(parents=True)
+    except FileExistsError:
+        if not path.is_dir():
+            # Raise an error if the existing path is not a directory,
+            # e.g. if it is a file.
+            raise NotADirectoryError(path) from None
+        return path
+    logger.action(f"Created directory {path}")
+    return path
+
+
+def symlink_if_needed(link_path: pathlib.Path | str,
+                      target_path: pathlib.Path | str):
+    """ Make link_path a link pointing to target_path and log that event
+    if it does not exist. """
+    link_path = pathlib.Path(link_path)
+    target_path = sanitize(target_path, strict=True)
+    try:
+        link_path.symlink_to(target_path)
+    except FileExistsError:
+        # link_path already exists, so make sure it is a symbolic link
+        # that points to target_path.
+        try:
+            readlink = link_path.readlink()
+        except OSError:
+            raise OSError(f"{link_path} is not a symbolic link") from None
+        if readlink != target_path:
+            raise OSError(f"{link_path} is a symbolic link to {readlink}, "
+                          f"not to {target_path}") from None
+        return link_path
+    logger.action(f"Made {link_path} a symbolic link to {target_path}")
+    return link_path
+
+
+def rmdir_if_needed(path: pathlib.Path | str,
+                    rmtree: bool = False,
+                    rmtree_ignore_errors: bool = False,
+                    raise_on_rmtree_error: bool = True):
+    """ Remove a directory and log that event if it exists. """
+    path = sanitize(path, strict=False)
+    try:
+        path.rmdir()
+    except FileNotFoundError:
+        # The path does not exist, so there is no need to delete it.
+        # FileNotFoundError is a subclass of OSError, so need to handle
+        # this exception before OSError.
+        logger.detail(f"Skipped removing directory {path}: does not exist")
+        return path
+    except NotADirectoryError:
+        # Trying to rmdir() something that is not a directory should
+        # always raise an error. NotADirectoryError is a subclass of
+        # OSError, so need to handle this exception before OSError.
+        raise
+    except OSError:
+        # The directory exists but could not be removed for some reason,
+        # probably that it is not empty.
+        if not rmtree:
+            # For safety, remove directories recursively only if given
+            # explicit permission to do so; if not, re-raise the error.
+            raise
+        try:
+            shutil.rmtree(path, ignore_errors=rmtree_ignore_errors)
+        except Exception as error:
+            if raise_on_rmtree_error:
+                raise
+            # If not raising errors, then log a warning but return now
+            # to avoid logging that the directory was removed.
+            logger.warning(error)
+            return path
+    logger.action(f"Removed directory {path}")
+
+
 # Path creation routines
+
 
 @cache
 def create_path_type(*segment_types: Segment):
@@ -660,18 +808,14 @@ def build(*segment_types: Segment, **field_values: Any):
 def builddir(*segment_types: Segment, **field_values: Any):
     """ Build the path and create it on the file system as a directory
     if it does not already exist. """
-    path = build(*segment_types, **field_values)
-    path.mkdir(parents=True, exist_ok=True)
-    logger.detail(f"Created directory {path}")
-    return path
+    return mkdir_if_needed(build(*segment_types, **field_values))
 
 
 def buildpar(*segment_types: Segment, **field_values: Any):
     """ Build a path and create its parent directory if it does not
     already exist. """
     path = build(*segment_types, **field_values)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    logger.detail(f"Created directory {path.parent}")
+    mkdir_if_needed(path.parent)
     return path
 
 
@@ -682,10 +826,7 @@ def randdir(parent: str | pathlib.Path | None = None,
     it on the file system. """
     parent = sanitize(parent) if parent is not None else pathlib.Path.cwd()
     path = pathlib.Path(mkdtemp(dir=parent, prefix=prefix, suffix=suffix))
-    logger.detail(f"Created random directory {path} with "
-                  f"parent={repr(parent)}, "
-                  f"prefix={repr(prefix)}, "
-                  f"suffix={repr(suffix)}")
+    logger.action(f"Created directory {path}")
     return path
 
 
@@ -699,14 +840,15 @@ def get_fields_in_seg_types(*segment_types: Segment) -> dict[str, Field]:
     return fields
 
 
-def deduplicate(paths: Iterable[str | pathlib.Path]):
+def deduplicate(paths: Iterable[str | pathlib.Path], warn: bool = True):
     """ Yield the non-redundant paths. """
     total = 0
     seen = set()
     for path in map(sanitize, paths):
         total += 1
         if path in seen:
-            logger.warning(f"Duplicate path: {path}")
+            if warn:
+                logger.warning(f"Duplicate path: {path}")
         else:
             seen.add(path)
             yield path
@@ -761,7 +903,9 @@ def path_matches(path: str | pathlib.Path, segments: Sequence[Segment]):
 
 
 @deduplicated
-def find_files(path: str | pathlib.Path, segments: Sequence[Segment]):
+def find_files(path: str | pathlib.Path,
+               segments: Sequence[Segment],
+               pre_sanitize: bool = True):
     """ Yield all files that match a sequence of path segments.
     The behavior depends on what `path` is:
 
@@ -776,24 +920,30 @@ def find_files(path: str | pathlib.Path, segments: Sequence[Segment]):
         Path of a file to check or a directory to search recursively.
     segments: Sequence[Segment]
         Sequence(s) of Path segments to check if each file matches.
+    pre_sanitize: bool
+        Whether to sanitize the path before searching it.
 
     Returns
     -------
     Generator[Path, Any, None]
         Paths of files matching the segments.
     """
-    path = sanitize(path, strict=True)
-    if path.is_dir():
-        # Search the directory for files matching the segments.
-        logger.detail(f"Began searching {path} and any of its subdirectories "
-                      f"for files matching {list(map(str, segments))}")
-        yield from chain(*map(partial(find_files, segments=segments),
-                              path.iterdir()))
-    else:
-        # Assume the path is a file; check if it matches the segments.
+    if pre_sanitize:
+        path = sanitize(path, strict=True)
+    if path.is_file():
+        # Check if the file matches the segments.
         if path_matches(path, segments):
             # If so, then yield it.
+            logger.detail(f"Found file {path}")
             yield path
+    else:
+        # Search the directory for files matching the segments.
+        logger.routine(f"Began recursively searching directory {path}")
+        yield from chain(*map(partial(find_files,
+                                      segments=segments,
+                                      pre_sanitize=False),
+                              path.iterdir()))
+        logger.routine(f"Ended recursively searching directory {path}")
 
 
 @deduplicated
@@ -915,24 +1065,3 @@ def transpaths(to_dir: str | pathlib.Path,
     common_path = os.path.commonpath([sanitize(p, strict) for p in paths])
     # Move each path from that common path to the given directory.
     return tuple(transpath(to_dir, common_path, p, strict) for p in paths)
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

@@ -1,5 +1,6 @@
 from collections import defaultdict
 from pathlib import Path
+from typing import Iterable
 
 from click import command
 
@@ -18,9 +19,9 @@ from ..core.task import dispatch
 
 @run_func(CMD_RENUMCT)
 def run(*,
-        ct_pos_5: tuple[tuple[str, int], ...],
+        ct_pos_5: Iterable[tuple[str, int]],
         inplace: bool,
-        out_dir: str,
+        out_dir: str | Path,
         force: bool,
         max_procs: int):
     """ Renumber connectivity table (CT) files given a 5' position. """
@@ -74,24 +75,3 @@ params = [
 def cli(*args, **kwargs):
     """ Renumber connectivity table (CT) files given a 5' position. """
     return run(*args, **kwargs)
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

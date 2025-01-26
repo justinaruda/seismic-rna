@@ -383,6 +383,11 @@ class EndCoords(object):
         """ 3' end of each read. """
         return find_read_end3s(self.seg_end3s)
 
+    @cached_property
+    def read_lengths(self):
+        """ Length of each read. """
+        return self.read_end3s - self.read_end5s + 1
+
     @property
     def pos_dtype(self):
         """ Data type for positions. """
@@ -404,24 +409,3 @@ class EndCoords(object):
     def num_discontiguous(self):
         """ Number of discontiguous reads. """
         return self.num_reads - self.num_contiguous
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

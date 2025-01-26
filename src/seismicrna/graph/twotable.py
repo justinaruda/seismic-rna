@@ -8,15 +8,18 @@ from typing import Any, Callable, Iterable
 import pandas as pd
 
 from .base import (LINKER,
-                   cgroup_table,
                    get_action_name,
-                   make_tracks,
                    make_title_action_sample,
                    make_path_subject)
-from .rel import OneRelGraph
+from .cgroup import (ClusterGroupGraph,
+                     ClusterGroupRunner,
+                     cgroup_table,
+                     make_tracks)
 from .table import (TableGraph,
-                    TableGraphRunner,
-                    TableGraphWriter,
+                    RelTableGraph,
+                    TableRunner,
+                    RelTableRunner,
+                    TableWriter,
                     load_pos_tables)
 from ..cluster.table import ClusterTable
 from ..core.arg import opt_comppair, opt_compself, opt_out_dir
@@ -30,26 +33,18 @@ ROW_NAME = "Row"
 COL_NAME = "Column"
 
 
-class TwoTableGraph(TableGraph, OneRelGraph, ABC):
+class TwoTableGraph(TableGraph, ABC):
     """ Graph of two Tables. """
 
     def __init__(self, *,
                  out_dir: str | Path,
                  table1: Table | PositionTable,
-                 k1: int | None,
-                 clust1: int | None,
                  table2: Table | PositionTable,
-                 k2: int | None,
-                 clust2: int | None,
                  **kwargs):
         super().__init__(**kwargs)
         self._top = Path(out_dir)
         self.table1 = table1
-        self.k1 = k1
-        self.clust1 = clust1
         self.table2 = table2
-        self.k2 = k2
-        self.clust2 = clust2
 
     def _get_common_attribute(self, name: str):
         """ Get the common attribute for tables 1 and 2. """
@@ -117,6 +112,24 @@ class TwoTableGraph(TableGraph, OneRelGraph, ABC):
                 if self.action_sample1 == self.action_sample2
                 else " vs. ".join([self.action_sample1, self.action_sample2]))
 
+
+class TwoTableRelClusterGroupGraph(TwoTableGraph,
+                                   RelTableGraph,
+                                   ClusterGroupGraph,
+                                   ABC):
+
+    def __init__(self, *,
+                 k1: int | None,
+                 clust1: int | None,
+                 k2: int | None,
+                 clust2: int | None,
+                 **kwargs):
+        super().__init__(**kwargs)
+        self.k1 = k1
+        self.clust1 = clust1
+        self.k2 = k2
+        self.clust2 = clust2
+
     @cached_property
     def path_subject1(self):
         """ Name of subject 1. """
@@ -160,7 +173,7 @@ class TwoTableGraph(TableGraph, OneRelGraph, ABC):
         return make_tracks(self.table1, self.k1, self.clust1)
 
 
-class TwoTableMergedGraph(TwoTableGraph, ABC):
+class TwoTableMergedClusterGroupGraph(TwoTableRelClusterGroupGraph, ABC):
     """ Graph of a pair of datasets over the same sequence in which the
     data series are merged in some fashion into another series, and the
     original data are not graphed directly. """
@@ -201,7 +214,7 @@ class TwoTableMergedGraph(TwoTableGraph, ABC):
                 yield (row, col), trace
 
 
-class TwoTableWriter(TableGraphWriter, ABC):
+class TwoTableWriter(TableWriter, ABC):
     """ Write the proper types of graphs for two given tables. """
 
     @classmethod
@@ -209,23 +222,25 @@ class TwoTableWriter(TableGraphWriter, ABC):
     def get_graph_type(cls, *args, **kwargs) -> type[TwoTableGraph]:
         """ Type of graph. """
 
-    def __init__(self, table1: Table, table2: Table):
-        super().__init__(table1, table2)
+    def __init__(self, table1: Table, table2: Table, **kwargs):
+        super().__init__(table1, table2, **kwargs)
 
     @cached_property
     def table1(self):
         """ The first table providing the data for the graph(s). """
+        assert len(self.tables) == 2
         return self.tables[0]
 
     @cached_property
     def table2(self):
         """ The second table providing the data for the graph(s). """
+        assert len(self.tables) == 2
         return self.tables[1]
 
-    def iter_graphs(self,
-                    rels: tuple[str, ...],
-                    cgroup: str,
-                    **kwargs):
+
+class TwoTableRelClusterGroupWriter(TwoTableWriter, ABC):
+
+    def iter_graphs(self, *, rels: list[str], cgroup: str, **kwargs):
         for cparams1, cparams2 in product(cgroup_table(self.table1, cgroup),
                                           cgroup_table(self.table2, cgroup)):
             for rel in rels:
@@ -248,24 +263,26 @@ def iter_table_pairs(tables: Iterable[Table]):
     for table in tables:
         key = table.ref, table.reg
         if table in table_groups[key]:
-            logger.warning(f"Duplicate table: {table}")
+            logger.warning(f"Duplicate reference and region: {key}")
         else:
             table_groups[key].append(table)
-    # Yield every pair of tables from each group.
-    for (ref, reg), tables in table_groups.items():
-        n_files = len(tables)
+    # Yield every pair of tables from each table group.
+    for (ref, reg), table_group in table_groups.items():
+        n_files = len(table_group)
         n_pairs = n_files * (n_files - 1) // 2
-        logger.detail(f"Found {n_files} table files ({n_pairs} pairs) "
+        logger.detail(f"Found {n_files} table(s) and {n_pairs} pair(s) "
                       f"with reference {repr(ref)} and region {repr(reg)}")
-        yield from combinations(tables, 2)
+        # Sort the tables by sample to ensure the order of combinations
+        # is consistent no matter the order of the "tables" argument.
+        yield from combinations(sorted(table_group, key=lambda t: t.sample), 2)
 
 
-class TwoTableRunner(TableGraphRunner, ABC):
+class TwoTableRunner(TableRunner, ABC):
 
     @classmethod
     @abstractmethod
     def get_writer_type(cls) -> type[TwoTableWriter]:
-        """ Type of GraphWriter. """
+        """ Type of Writer. """
 
     @classmethod
     def var_params(cls):
@@ -273,7 +290,7 @@ class TwoTableRunner(TableGraphRunner, ABC):
 
     @classmethod
     def run(cls,
-            input_path: tuple[str, ...], *,
+            input_path: Iterable[str | Path], *,
             compself: bool,
             comppair: bool,
             max_procs: int,
@@ -289,30 +306,17 @@ class TwoTableRunner(TableGraphRunner, ABC):
             # Compare every pair of two different tables.
             table_pairs.extend(iter_table_pairs(tables))
         # Generate a table writer for each pair of tables.
-        writers = [cls.get_writer_type()(table1, table2)
+        writer_type = cls.get_writer_type()
+        writers = [writer_type(table1, table2)
                    for table1, table2 in table_pairs]
         return list(chain(*dispatch([writer.write for writer in writers],
                                     max_procs,
                                     pass_n_procs=False,
                                     kwargs=kwargs)))
 
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################
+
+class TwoTableRelClusterGroupRunner(TwoTableRunner,
+                                    RelTableRunner,
+                                    ClusterGroupRunner,
+                                    ABC):
+    pass

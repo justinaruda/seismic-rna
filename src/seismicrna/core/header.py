@@ -22,8 +22,10 @@ DECONVOLVE_PREFIX = "deconvolve"
 K_CLUST_KEY = "k_clust_list"
 
 # No-cluster lists
-NO_KS = [0]
-NO_CLUSTS = [(0, 0)]
+NO_K = 0
+NO_KS = [NO_K]
+NO_CLUST = 0, 0
+NO_CLUSTS = [NO_CLUST]
 
 
 def validate_k_clust(k: int, clust: int):
@@ -472,12 +474,12 @@ def make_header(*,
     Header
         Header of the appropriate type.
     """
-    if rels is not None:
-        if ks is not None:
+    if ks is not None and ks != NO_KS:
+        if rels is not None:
             return RelClustHeader(rels=rels, ks=ks)
-        return RelHeader(rels=rels)
-    if ks is not None:
         return ClustHeader(ks=ks)
+    if rels is not None:
+        return RelHeader(rels=rels)
     raise TypeError("Must give rels, ks, or both, but got neither")
 
 
@@ -534,24 +536,3 @@ def parse_header(index: pd.Index | pd.MultiIndex):
         if not index.equals(header.index):
             raise ValueError(f"Indexes do not match: {header.index} ≠ {index}")
     return header
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

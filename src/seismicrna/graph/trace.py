@@ -3,7 +3,6 @@ import pandas as pd
 from plotly import graph_objects as go
 
 from .color import ColorMap
-from .hist import COUNT_NAME, LOWER_NAME, UPPER_NAME
 from ..core.header import REL_NAME
 from ..core.rna import compute_auc
 from ..core.seq import BASE_NAME, POS_NAME, DNA
@@ -44,7 +43,7 @@ def get_seq_base_scatter_trace(xdata: pd.Series,
                       x=vals.x,
                       y=vals.y,
                       mode="markers",
-                      marker_color=cmap[base],
+                      marker_color=cmap.get(base),
                       hovertext=hovertext,
                       hoverinfo="text")
 
@@ -72,7 +71,7 @@ def get_seq_base_bar_trace(data: pd.Series, cmap: ColorMap, base: str):
     return go.Bar(name=base,
                   x=vals.index,
                   y=vals,
-                  marker_color=cmap[base],
+                  marker_color=cmap.get(base),
                   hovertext=hovertext,
                   hoverinfo="text")
 
@@ -93,7 +92,7 @@ def get_seq_stack_bar_trace(data: pd.Series, rel: str, cmap: ColorMap):
     return go.Bar(name=rel,
                   x=pos,
                   y=data,
-                  marker_color=cmap[rel],
+                  marker_color=cmap.get(rel),
                   hovertext=hovertext,
                   hoverinfo="text")
 
@@ -105,19 +104,26 @@ def iter_seqbar_stack_traces(data: pd.DataFrame, cmap: ColorMap):
         yield get_seq_stack_bar_trace(series, rel, cmap)
 
 
+HIST_COUNT_NAME = "Count"
+HIST_LOWER_NAME = "Lower"
+HIST_UPPER_NAME = "Upper"
+
+
 def get_hist_trace(data: pd.Series, rel: str, cmap: ColorMap):
     # Get the edges of the bins.
     if isinstance(data.index, pd.MultiIndex):
-        lower = data.index.get_level_values(LOWER_NAME)
-        upper = data.index.get_level_values(UPPER_NAME)
+        lower = data.index.get_level_values(HIST_LOWER_NAME)
+        upper = data.index.get_level_values(HIST_UPPER_NAME)
         center = (lower + upper) / 2.
         hovertext = [(f"[{round(lo, PRECISION)} - {round(up, PRECISION)}] "
                       f"{rel}: {round(value, PRECISION)}")
                      for lo, up, value in zip(lower, upper, data, strict=True)]
     else:
-        if data.index.name != COUNT_NAME:
-            raise ValueError(f"Expected index to be named {repr(COUNT_NAME)}, "
-                             f"but got {repr(data.index.name)}")
+        if data.index.name != HIST_COUNT_NAME:
+            raise ValueError(
+                f"Expected index to be named {repr(HIST_COUNT_NAME)}, "
+                f"but got {repr(data.index.name)}"
+            )
         center = data.index.values
         hovertext = [f"{count} {rel}: {round(value, PRECISION)}"
                      for count, value in data.items()]
@@ -125,7 +131,7 @@ def get_hist_trace(data: pd.Series, rel: str, cmap: ColorMap):
     return go.Bar(name=rel,
                   x=center,
                   y=data,
-                  marker_color=cmap[rel],
+                  marker_color=cmap.get(rel),
                   hovertext=hovertext,
                   hoverinfo="text")
 
@@ -211,23 +217,14 @@ def get_pairwise_position_trace(data: pd.Series, end5: int, end3: int):
                       z=matrix,
                       hoverongaps=False)
 
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################
+
+def iter_stack_bar_traces(data: pd.DataFrame):
+    for column_label, column in data.items():
+        yield go.Bar(name=f"{data.columns.name} {column_label}",
+                     x=data.index,
+                     y=column,
+                     hovertext=[(f"{data.index.name} {index_label}, "
+                                 f"{data.columns.name} {column_label}: "
+                                 f"{round(value, PRECISION)}")
+                                for index_label, value in column.items()],
+                     hoverinfo="text")

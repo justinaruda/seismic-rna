@@ -9,10 +9,10 @@ import numpy as np
 import pandas as pd
 
 from .batch import apply_mask
-from .data import MaskMutsDataset
+from .dataset import MaskMutsDataset
 from .io import MaskBatchIO
 from .report import MaskReport
-from .table import MaskBatchTabulator, MaskDatasetTabulator
+from .table import MaskBatchTabulator
 from ..core import path
 from ..core.arg import docdef
 from ..core.batch import RegionMutsBatch
@@ -21,9 +21,9 @@ from ..core.rel import RelPattern
 from ..core.report import mask_iter_no_convergence
 from ..core.seq import FIELD_REF, POS_NAME, Region, index_to_pos
 from ..core.table import MUTAT_REL, INFOR_REL
-from ..core.tmp import release_to_out
+from ..core.tmp import release_to_out, with_tmp_dir
 from ..core.write import need_write
-from ..relate.data import RelateDataset, PoolDataset, load_read_names_dataset
+from ..relate.dataset import RelateMutsDataset, PoolDataset, load_read_names_dataset
 
 
 class Masker(object):
@@ -44,7 +44,7 @@ class Masker(object):
 
     @docdef.auto()
     def __init__(self,
-                 dataset: RelateDataset | PoolDataset,
+                 dataset: RelateMutsDataset | PoolDataset,
                  region: Region,
                  pattern: RelPattern, *,
                  max_mask_iter: int,
@@ -487,8 +487,6 @@ class Masker(object):
     def mask(self):
         if self._iter > 0:
             raise ValueError(f"{self} already masked the data")
-        out_dir = self.dataset.top
-        relate_data_dirs = self.dataset.data_dirs
         # Exclude positions based on the parameters.
         self._exclude_positions()
         unmasked_curr = self.pos_kept
@@ -502,15 +500,13 @@ class Masker(object):
                           f"{unmasked_curr}")
             logger.routine(f"Ended {self} iteration {self._iter}")
             # Masking has converged if either the same positions were
-            # masked before and after this iteration or no positions
-            # remain unmasked after this iteration.
-            if unmasked_curr.size == 0 or np.array_equal(unmasked_prev,
-                                                         unmasked_curr):
+            # masked before and after this iteration.
+            if np.array_equal(unmasked_prev, unmasked_curr):
                 self._converged = True
                 logger.routine(f"{self} converged on iteration {self._iter}")
             # Create and save the report after the opportunity to set
-            # self._converged to True (so that the report will contain
-            # the correct value) and before returning.
+            # self._converged to True (so that the report will have the
+            # correct value of self._converged) and before returning.
             report = self.create_report()
             report_saved = report.save(self.top, force=self._force_write)
             if self._converged or self._iter >= self.max_iter > 0:
@@ -523,17 +519,8 @@ class Masker(object):
             # in order to resume where the previous iteration ended.
             if self._iter == 1:
                 # To be able to load, the nascent mask dataset must have
-                # access to the original relate dataset, which is done
-                # by creating symbolic links to the relate dataset in
-                # the temporary directory.
-                for relate_data_dir in relate_data_dirs:
-                    tmp_data_dir = path.transpath(self.top,
-                                                  out_dir,
-                                                  relate_data_dir,
-                                                  strict=True)
-                    tmp_data_dir.parent.mkdir(parents=True, exist_ok=True)
-                    tmp_data_dir.symlink_to(relate_data_dir)
-                    logger.detail(f"Linked {tmp_data_dir} to {relate_data_dir}")
+                # access to the original relate dataset.
+                self.dataset.link_data_dirs_to_tmp(self.top)
             self.dataset = MaskMutsDataset(report_saved)
             self._iter += 1
 
@@ -593,15 +580,16 @@ class Masker(object):
         return f"Mask {self.dataset} over {self.region}"
 
 
-def mask_region(dataset: RelateDataset | PoolDataset,
-                region: Region,
+@with_tmp_dir(pass_keep_tmp=False)
+def mask_region(dataset: RelateMutsDataset | PoolDataset,
+                region: Region, *,
+                tmp_dir: Path,
                 mask_del: bool,
                 mask_ins: bool,
-                mask_mut: Iterable[str], *,
-                tmp_dir: Path,
-                force: bool,
+                mask_mut: Iterable[str],
                 mask_pos_table: bool,
                 mask_read_table: bool,
+                force: bool,
                 n_procs: int,
                 **kwargs):
     """ Mask out certain reads, positions, and relationships. """
@@ -623,24 +611,3 @@ def mask_region(dataset: RelateDataset | PoolDataset,
         tabulator.write_tables(pos=mask_pos_table, read=mask_read_table)
         release_to_out(dataset.top, tmp_dir, report_saved.parent)
     return report_file.parent
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

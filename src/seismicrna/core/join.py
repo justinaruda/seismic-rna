@@ -4,10 +4,12 @@ from typing import Any, Iterable
 
 import numpy as np
 
-from ..array import locate_elements
-from ..batch import MutsBatch, match_reads_segments
-from ..data import WideMutsDataset
-from ..seq import Region
+from .array import locate_elements
+from .batch import MutsBatch, match_reads_segments
+from .dataset import WideMutsDataset
+from .io import RegIO
+from .report import Report
+from .seq import Region
 
 BATCH_NUM = "batch"
 READ_NUMS = "read_nums"
@@ -143,23 +145,6 @@ class JoinMutsDataset(WideMutsDataset, ABC):
         self._finalize_attrs(attrs)
         return self.get_batch_type()(region=self.region, **attrs)
 
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################
+
+class JoinReport(Report, RegIO, ABC):
+    """ Report for a joined dataset. """

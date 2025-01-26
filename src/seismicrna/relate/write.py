@@ -24,6 +24,7 @@ def relate_records(records: Iterable[tuple[str, str, str]],
                    min_qual: int,
                    insert3: bool,
                    ambindel: bool,
+                   ambindel_max_iter: int,
                    overhangs: bool,
                    clip_end5: int,
                    clip_end3: int,
@@ -36,7 +37,7 @@ def relate_records(records: Iterable[tuple[str, str, str]],
         except ImportError:
             logger.warning(
                 "Failed to import the C extension for the relate algorithm; "
-                "defaulting to the Python version, which is much slower"
+                "defaulting to the Python implementation, which is much slower"
             )
             from .py.relate import RelateError, calc_rels_lines
     else:
@@ -53,11 +54,12 @@ def relate_records(records: Iterable[tuple[str, str, str]],
                                         min_qual,
                                         insert3,
                                         ambindel,
+                                        ambindel_max_iter,
                                         overhangs,
                                         clip_end5,
                                         clip_end3)
         except RelateError as error:
-            logger.error(error)
+            logger.error(RelateError(f"Read {repr(name)}: {error}"))
 
 
 def generate_batch(batch: int, *,
@@ -179,6 +181,7 @@ class RelationWriter(object):
               phred_enc: int,
               insert3: bool,
               ambindel: bool,
+              ambindel_max_iter: int,
               overhangs: bool,
               clip_end5: int,
               clip_end3: int,
@@ -213,6 +216,7 @@ class RelationWriter(object):
                 phred_enc=phred_enc,
                 insert3=insert3,
                 ambindel=ambindel,
+                ambindel_max_iter=ambindel_max_iter,
                 overhangs=overhangs,
                 clip_end5=clip_end5,
                 clip_end3=clip_end3,
@@ -240,6 +244,7 @@ class RelationWriter(object):
                 phred_enc=phred_enc,
                 insert3=insert3,
                 ambindel=ambindel,
+                ambindel_max_iter=ambindel_max_iter,
                 overhangs=overhangs,
                 clip_end5=clip_end5,
                 clip_end3=clip_end3,
@@ -259,12 +264,12 @@ class RelationWriter(object):
         return f"Relate {self._xam}"
 
 
-def write_one(xam_file: Path, *,
-              fasta: Path,
-              tmp_dir: Path,
-              batch_size: int,
-              n_procs: int,
-              **kwargs):
+def relate_xam(xam_file: Path, *,
+               fasta: Path,
+               tmp_dir: Path,
+               batch_size: int,
+               n_procs: int,
+               **kwargs):
     """ Write the batches of relationships for one XAM file. """
     release_dir, working_dir = get_release_working_dirs(tmp_dir)
     ref = path.parse(xam_file, *path.XAM_SEGS)[path.REF]
@@ -274,34 +279,3 @@ def write_one(xam_file: Path, *,
                                       n_procs=n_procs),
                             get_fasta_seq(fasta, DNA, ref))
     return writer.write(**kwargs, n_procs=n_procs, release_dir=release_dir)
-
-
-def write_all(xam_files: Iterable[Path],
-              max_procs: int,
-              **kwargs):
-    """ Write the batches of relationships for all XAM files. """
-    return dispatch(write_one,
-                    max_procs,
-                    args=as_list_of_tuples(path.deduplicate(xam_files)),
-                    kwargs=kwargs)
-
-########################################################################
-#                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################
