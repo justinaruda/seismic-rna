@@ -9,6 +9,7 @@ from ..core.arg import opt_use_ratio, opt_quantile
 from ..core.table import Table, PositionTable
 from ..mask.table import MaskPositionTableLoader, MaskReadTableLoader
 from ..relate.table import RelatePositionTableLoader, RelateReadTableLoader
+from ..deconvolve.table import DeconvolvePositionTableLoader
 
 
 class TableGraph(GraphBase, ABC):
@@ -87,7 +88,8 @@ def load_pos_tables(input_paths: Iterable[str | Path]):
     paths = list(input_paths)
     for table_type in [RelatePositionTableLoader,
                        MaskPositionTableLoader,
-                       ClusterPositionTableLoader]:
+                       ClusterPositionTableLoader,
+                       DeconvolvePositionTableLoader]:
         yield from table_type.load_tables(paths)
 
 

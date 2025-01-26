@@ -8,11 +8,11 @@ from .batch import DeconvolveMutsBatch
 from .io import DeconvolveBatchIO
 from .report import DeconvolveReport
 from ..core.batch import MutsBatch
-from ..core.data import (ArrowDataset,
-                         Dataset,
+from ..core.data import (Dataset,
                          LoadedDataset,
                          LoadFunction,
                          MergedUnbiasDataset,
+                         MultistepDataset,
                          UnbiasDataset)
 from ..core.header import (NUM_CLUSTS_NAME,
                            ClustHeader,
@@ -142,7 +142,7 @@ class DeconvolveReadDataset(DeconvolveDataset, LoadedDataset):
         return MaskPositionTable.build_path(top=self.top, 
                                      sample=self.no_probe_sample, 
                                      ref=self.ref,
-                                     sect=self.sect)
+                                     reg=self.region.name)
     
     @cached_property
     def only_probe_sample(self):
@@ -153,14 +153,14 @@ class DeconvolveReadDataset(DeconvolveDataset, LoadedDataset):
         return MaskPositionTable.build_path(top=self.top, 
                                      sample=self.only_probe_sample, 
                                      ref=self.ref,
-                                     sect=self.sect)
+                                     reg=self.region.name)
 
     @property
     def pattern(self):
         return None
 
 
-class DeconvolveMutsDataset(DeconvolveDataset, ArrowDataset, UnbiasDataset):
+class DeconvolveMutsDataset(DeconvolveDataset, MultistepDataset, UnbiasDataset):
     """ Merge cluster responsibilities with mutation data. """
 
     @classmethod
@@ -180,8 +180,8 @@ class DeconvolveMutsDataset(DeconvolveDataset, ArrowDataset, UnbiasDataset):
         self.data1.pattern = pattern
 
     @property
-    def section(self):
-        return self.data1.section
+    def region(self):
+        return self.data1.region
 
     @property
     def min_mut_gap(self):
@@ -257,7 +257,7 @@ class DeconvolveMutsDataset(DeconvolveDataset, ArrowDataset, UnbiasDataset):
 
     def _integrate(self, batch1: MaskMutsBatch, batch2: DeconvolveBatchIO):
         return DeconvolveMutsBatch(batch=batch1.batch,
-                                section=batch1.section,
+                                region=batch1.region,
                                 seg_end5s=batch1.seg_end5s,
                                 seg_end3s=batch1.seg_end3s,
                                 muts=batch1.muts,

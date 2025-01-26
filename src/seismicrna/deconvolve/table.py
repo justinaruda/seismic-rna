@@ -30,7 +30,7 @@ from ..core.table.base import (MUTAT_REL,
 from ..core.logs import logger
 from ..core.write import need_write
 from ..mask.table import adjust_counts, MaskPositionTableLoader
-from ..core.seq import Section
+from ..core.seq import Region
 from ..core.rna import RNAProfile
 
 from .report import DeconvolveReport
@@ -57,7 +57,7 @@ class DeconvolveTable(RelTypeTable, ABC):
         return DeconvolveReport.build_path(top=self.top, 
                                      sample=self.sample, 
                                      ref=self.ref,
-                                     sect=self.sect)
+                                     reg=self.reg)
 
 
 class DeconvolvePositionTable(DeconvolveTable, PartialPositionTable, ABC):
@@ -93,34 +93,34 @@ class DeconvolvePositionTable(DeconvolveTable, PartialPositionTable, ABC):
         return f"{DECONVOLVE_PREFIX} {name}"
     
     def _iter_profiles(self, *,
-                       sections: Iterable[Section] | None,
+                       regions: Iterable[Region] | None,
                        quantile: float,
                        rel: str,
                        k: int | None,
                        clust: int | None):
         """ Yield RNA mutational profiles from a table. """
         print("Iterating")
-        if sections is not None:
-            sections = list(sections)
+        if regions is not None:
+            regions = list(regions)
         else:
-            sections = [self.section]
+            regions = [self.region]
         for hk, hc in self.header.clusts:
             if (k is None or k == hk) and (clust is None or clust == hc):
                 data_name = path.fill_whitespace(self.format_clust_name(hk, hc),
                                                  fill="-")
                 positions = self.get_positions(hk, hc)
-                for section in sections:
-                    prof_section = section.copy()
-                    seq_list = list(prof_section.seq)
+                for region in regions:
+                    prof_region = region.copy()
+                    seq_list = list(prof_region.seq)
                     for position in positions:
-                        position -= section.end5
+                        position -= region.end5
                         seq_list[position] = "G" #HARDCODED
-                    prof_section.seq = DNA("".join(seq_list))
-                    prof_section.mask_gu()
-                    self.section.mask_gu() #HARDCODED
-                    yield RNAProfile(section=prof_section,
+                    prof_region.seq = DNA("".join(seq_list))
+                    prof_region.mask_gu()
+                    self.region.mask_gu() #HARDCODED
+                    yield RNAProfile(region=prof_region,
                                      sample=self.sample,
-                                     data_sect=self.sect,
+                                     data_reg=self.reg,
                                      data_name=data_name,
                                      data=self.fetch_ratio(quantile=quantile,
                                                            rel=rel,
@@ -252,9 +252,9 @@ class DeconvolveTabulator(PartialTabulator, ABC):
     def _adjusted(self):
         table_per_pos = super(PartialTabulator, self).data_per_pos
         if self.min_mut_gap > 0:
-            if self.section.length > np.sqrt(1_000_000_000):
-                logger.warning("Using bias correction on a section with "
-                               f"{self.section.length} positions requires "
+            if self.region.length > np.sqrt(1_000_000_000):
+                logger.warning("Using bias correction on a region with "
+                               f"{self.region.length} positions requires "
                                ">1 GB of memory. If this is impractical, you "
                                "can (at the cost of lower accuracy) disable "
                                "bias correction using --min-mut-gap 0.")
@@ -275,7 +275,7 @@ class DeconvolveTabulator(PartialTabulator, ABC):
                 n_rels, n_clust = adjust_counts(table_per_pos,
                                      self.p_ends_given_clust_noclose,
                                      self.num_reads,
-                                     self.section,
+                                     self.region,
                                      self.min_mut_gap,
                                      self.quick_unbias,
                                      self.quick_unbias_thresh)

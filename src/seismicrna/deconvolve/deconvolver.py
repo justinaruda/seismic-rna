@@ -52,9 +52,8 @@ class Deconvolver:
         self.strict = strict
         self.sample = self.deconvolve_dataset.sample
         self.ref = self.deconvolve_dataset.ref
-        self.sect = self.deconvolve_dataset.sect
         self.n_batches = 3
-        self.section = self.deconvolve_dataset.section
+        self.region = self.deconvolve_dataset.region
         self.norm_edits = norm_edits
 
     def _get_deconvolve_muts_dataset(self):
@@ -124,9 +123,9 @@ class Deconvolver:
 
     def graph(self, k=None, clust=None, deconvolved_clusters=None, force=True):
         k_clust_list = list(self.k_cluster[deconvolved_clusters])
-        mask_section = self.section.copy()
-        mask_section.add_mask(mask_pos=self.positions.ravel(), name='mask-deconvolve')
-        self.graph_obj = OneRelDeconvolvedProfileGraph(section=mask_section,
+        mask_region = self.region.copy()
+        mask_region.add_mask(mask_pos=self.positions.ravel(), name='mask-deconvolve')
+        self.graph_obj = OneRelDeconvolvedProfileGraph(region=mask_region,
                                                        k=k, 
                                                        clust=clust, 
                                                        k_clust_list=k_clust_list,
@@ -145,12 +144,12 @@ class Deconvolver:
                         quantile=0., 
                         metric="pcc",
                         force=True):
-        mask_section = self.section.copy()
-        mask_section.mask_gu()
-        mask_section.add_mask(mask_pos=self.positions.ravel(), name='mask-deconvolve')
+        mask_region = self.region.copy()
+        mask_region.mask_gu()
+        mask_region.add_mask(mask_pos=self.positions.ravel(), name='mask-deconvolve')
         k1, clust1 = self.k_cluster[deconvolved_clust_1]
         k2, clust2 = self.k_cluster[deconvolved_clust_2]
-        self.graph_obj = DeconvolvedRollingCorrelationGraph(section=mask_section,
+        self.graph_obj = DeconvolvedRollingCorrelationGraph(region=mask_region,
                                                             metric=metric,
                                                             table1=self.table_writer, 
                                                             k1=k1, 
@@ -171,9 +170,9 @@ class Deconvolver:
                         deconvolved_clust_2,
                         quantile=0.95,
                         force=True):
-        mask_section = self.section.copy()
-        mask_section.add_mask(mask_pos=self.positions.ravel(), name='mask-deconvolve')
-        self.table_writer.section = mask_section
+        mask_region = self.region.copy()
+        mask_region.add_mask(mask_pos=self.positions.ravel(), name='mask-deconvolve')
+        self.table_writer.region = mask_region
         k1, clust1 = self.k_cluster[deconvolved_clust_1]
         k2, clust2 = self.k_cluster[deconvolved_clust_2]
         self.graph_obj = DeltaProfileGraph(table1=self.table_writer, 
@@ -256,9 +255,9 @@ class DeconvolveMutsDataset(ClusterMutsDataset):
         return self.accum_pattern
 
     @cached_property
-    def section(self):
-        # Does this allow modification of the section?
-        return self.data1.section
+    def region(self):
+        # Does this allow modification of the region?
+        return self.data1.region
     
     @cached_property
     def max_k(self):
@@ -279,21 +278,21 @@ class DeconvolveMutsDataset(ClusterMutsDataset):
     
     @cached_property
     def uniq_reads(self):
-        a_pos = (np.array(list(self.section.seq)) != "A").nonzero()[0]
-        self.section.add_mask("mask-non-a", a_pos+self.section.coord[0])
-        self.section.add_mask("mask-deconvolved", self.positions.ravel())
+        a_pos = (np.array(list(self.region.seq)) != "A").nonzero()[0]
+        self.region.add_mask("mask-non-a", a_pos+self.region.coord[0])
+        self.region.add_mask("mask-deconvolved", self.positions.ravel())
         only_ag = RelPattern.from_counts(discount=["ac", "at", "ca", "cg", "ct", "ta", "tg", "tc", "ga", "gc", "gt"], count_del=False, count_ins=False)
         
         ((seg_end5s, seg_end3s),
          muts_per_pos,
          batch_to_uniq,
-         count_per_uniq) = get_uniq_reads(self.section.unmasked_int,
+         count_per_uniq) = get_uniq_reads(self.region.unmasked_int,
                                           only_ag,
                                           self.data1.iter_batches(),
                                           )
         
         uniq_reads = UniqReads(self.data1.sample,
-                   self.data1.section,
+                   self.data1.region,
                    self.data1.min_mut_gap,
                    self.data1.quick_unbias,
                    self.data1.quick_unbias_thresh,
@@ -303,8 +302,8 @@ class DeconvolveMutsDataset(ClusterMutsDataset):
                    seg_end5s=seg_end5s,
                    seg_end3s=seg_end3s)
         
-        self.section.remove_mask("mask-non-a")
-        self.section.remove_mask("mask-deconvolved")
+        self.region.remove_mask("mask-non-a")
+        self.region.remove_mask("mask-deconvolved")
         return uniq_reads
     
     def _get_data_attr(self, name: str):
@@ -325,8 +324,8 @@ class DeconvolveMutsDataset(ClusterMutsDataset):
             if edited is None:
                 edited = muts.get(pos, dict()).get(mut_val, np.array([]))
             else:
-                # Pick intersection or union.
-                edited = np.intersect1d(edited, muts.get(pos, dict()).get(mut_val, np.array([])))
+                # Pick interregion or union.
+                edited = np.interreg1d(edited, muts.get(pos, dict()).get(mut_val, np.array([])))
         unedited = np.setdiff1d(batch.read_nums, edited)
         if strict:
             remove = np.array([])
@@ -346,12 +345,12 @@ class DeconvolveMutsDataset(ClusterMutsDataset):
 
             edited_indexes = np.isin(uniq_ed, uniq_uned)
             unedited_indexes = np.isin(uniq_uned, uniq_ed)
-            min_intersect = np.minimum(uniq_ed_counts[edited_indexes],
+            min_interreg = np.minimum(uniq_ed_counts[edited_indexes],
                                        uniq_uned_counts[unedited_indexes])
             keep_ed = np.zeros_like(edited, dtype=bool)
             keep_uned = np.zeros_like(unedited, dtype=bool)
             batch_to_uniq = self.uniq_reads.batch_to_uniq[batch.batch]
-            for read_count, common_uniq_num in zip(min_intersect, uniq_ed[edited_indexes]):
+            for read_count, common_uniq_num in zip(min_interreg, uniq_ed[edited_indexes]):
                 
                 mask = batch_to_uniq == common_uniq_num
                 read_nums = batch_to_uniq[mask].index.values

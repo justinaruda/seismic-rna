@@ -109,22 +109,22 @@ class DeconvRun(object):
     
     @cached_property
     def uniq_reads(self):
-        a_pos = (np.array(list(self.dataset.section.seq)) != "A").nonzero()[0]
-        self.dataset.section.add_mask("mask-non-a", a_pos+self.dataset.section.coord[0])
+        a_pos = (np.array(list(self.dataset.region.seq)) != "A").nonzero()[0]
+        self.dataset.region.add_mask("mask-non-a", a_pos+self.dataset.region.coord[0])
         self.current_positions = np.asarray(self.current_positions)
-        self.dataset.section.add_mask("mask-deconvolved", self.current_positions.ravel())
+        self.dataset.region.add_mask("mask-deconvolved", self.current_positions.ravel())
         only_ag = RelPattern.from_counts(discount=["ac", "at", "ca", "cg", "ct", "ta", "tg", "tc", "ga", "gc", "gt"], count_del=False, count_ins=False)
         
         ((seg_end5s, seg_end3s),
          muts_per_pos,
          batch_to_uniq,
-         count_per_uniq) = get_uniq_reads(self.dataset.section.unmasked_int,
+         count_per_uniq) = get_uniq_reads(self.dataset.region.unmasked_int,
                                           only_ag,
                                           self.dataset.iter_batches(),
                                           )
         
         uniq_reads = UniqReads(self.dataset.sample,
-                   self.dataset.section,
+                   self.dataset.region,
                    self.dataset.min_mut_gap,
                    self.dataset.quick_unbias,
                    self.dataset.quick_unbias_thresh,
@@ -134,8 +134,8 @@ class DeconvRun(object):
                    seg_end5s=seg_end5s,
                    seg_end3s=seg_end3s)
         
-        self.dataset.section.remove_mask("mask-non-a")
-        self.dataset.section.remove_mask("mask-deconvolved")
+        self.dataset.region.remove_mask("mask-non-a")
+        self.dataset.region.remove_mask("mask-deconvolved")
         return uniq_reads
     
     def _assign_uniq(self, batch, read_nums):
@@ -149,7 +149,7 @@ class DeconvRun(object):
         edited = None
         unedited = None
         edited_partial = set()
-        intersection = True
+        interregion = True
         for pos in self.current_positions:
             ref_base = ref[pos-1]
             if edited is None:
@@ -160,8 +160,8 @@ class DeconvRun(object):
             else:
                 for rel, read_nums in muts.get(pos, dict()).items():
                     if all(self.pattern.fits(ref_base, rel)):
-                        # Pick intersection or union.
-                        if intersection:
+                        # Pick interregion or union.
+                        if interregion:
                             read_nums = set(read_nums)
                             edited_partial = edited_partial | (edited ^ read_nums)
                             edited &= read_nums

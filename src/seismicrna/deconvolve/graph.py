@@ -4,7 +4,7 @@ from seismicrna.core.header import K_CLUST_KEY
 from seismicrna.graph.profile import OneRelProfileGraph, MultiRelsProfileGraph
 from seismicrna.graph.corroll import RollingCorrelationGraph
 from seismicrna.deconvolve.table import DeconvolvePositionTable
-from seismicrna.deconvolve.data import DeconvolveMutsDataset
+from seismicrna.deconvolve.dataset import DeconvolveMutsDataset
 import pandas as pd
 from typing import Iterable
 from collections import Counter
@@ -77,7 +77,7 @@ class DeconvolvedGraph:
                 if exists(table.report_path):
                     dataset = DeconvolveMutsDataset(table.report_path)
                 else:
-                    logger.error(f"No deconvolve report found for {table.ref} {table.sect}.")
+                    logger.error(f"No deconvolve report found for {table.ref} {table.reg}.")
             else:
                 dataset = table.tabulator.dataset
             self.cluster_index_to_name = dataset.cluster_index_to_name

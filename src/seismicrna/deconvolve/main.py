@@ -41,16 +41,16 @@ def load_pos_tables(input_paths: Iterable[str | Path]):
 
 def _load_and_group_tables(paths: Iterable[str]):
     """
-    Load position tables and group them by (reference, section).
+    Load position tables and group them by (reference, region).
     """
     dirs = [path.parent for path in paths]
     tables = load_pos_tables(dirs)
     grouped = defaultdict(list)
 
     for table in tables:
-        ref_sect = (table.ref, table.sect)
-        if table not in grouped[ref_sect]:
-            grouped[ref_sect].append(table)
+        ref_reg = (table.ref, table.reg)
+        if table not in grouped[ref_reg]:
+            grouped[ref_reg].append(table)
         else:
             logger.warning(f"Duplicate table: {table}")
 
@@ -60,7 +60,7 @@ def _get_matching_tables(deconvolve_paths: Iterable[str],
                          no_probe_paths: Iterable[str],
                          only_probe_paths: Iterable[str]):
     """
-    Get matching tables grouped by reference and section, based on deconvolve tables.
+    Get matching tables grouped by reference and region, based on deconvolve tables.
     """
     # Load deconvolve tables (primary key set) and additional tables
     deconvolve_groups = _load_and_group_tables(deconvolve_paths)
@@ -70,20 +70,20 @@ def _get_matching_tables(deconvolve_paths: Iterable[str],
     # Filter and populate valid groups in a single pass
     valid_groups = dict()
 
-    for ref_sect, tables in deconvolve_groups.items():
+    for ref_reg, tables in deconvolve_groups.items():
         # Extend with matching no_probe and only_probe tables if they exist
-        if ref_sect in no_probe_groups:
-            tables.extend(no_probe_groups[ref_sect])
-        if ref_sect in only_probe_groups:
-            tables.extend(only_probe_groups[ref_sect])
+        if ref_reg in no_probe_groups:
+            tables.extend(no_probe_groups[ref_reg])
+        if ref_reg in only_probe_groups:
+            tables.extend(only_probe_groups[ref_reg])
 
         # Check if we have exactly 3 tables; otherwise, log and skip
         if len(tables) == 3:
-            valid_groups[ref_sect] = tables
+            valid_groups[ref_reg] = tables
         else:
-            ref, sect = ref_sect
+            ref, reg = ref_reg
             logger.warning(
-                f"Expected 3 tables with reference {repr(ref)} and section {repr(sect)}, "
+                f"Expected 3 tables with reference {repr(ref)} and region {repr(reg)}, "
                 f"but got {len(tables)}. Skipping..."
             )
 
@@ -129,7 +129,7 @@ def run(deconv_path: tuple[str, ...],
         deconv_reports = path.find_files(deconv_elem,
         load_mask_dataset.report_path_seg_types)
         norm = no_probe_elem is not None and only_probe_elem is not None
-        if norm:    
+        if norm:  
             no_probe_reports = path.find_files(no_probe_elem,
             load_mask_dataset.report_path_seg_types)
             only_probe_reports = path.find_files(only_probe_elem,
@@ -146,10 +146,10 @@ def run(deconv_path: tuple[str, ...],
                     path_set.add(file)
                     if norm:
                         dataset = MaskMutsDataset(file)
-                        ref, sect = dataset.ref, dataset.section.name
+                        ref, reg = dataset.ref, dataset.region.name
                         (deconvolve_table,
                          no_probe_table,
-                         only_probe_table) = table_groups.get((ref, sect), (None, None, None))
+                         only_probe_table) = table_groups.get((ref, reg), (None, None, None))
                         if not deconvolve_table or not no_probe_table or not only_probe_table:
                             continue
                         bayes = calc_bayes(no_probe_table,
@@ -161,7 +161,7 @@ def run(deconv_path: tuple[str, ...],
                         conf_positions = bayes[bayes >= conf_thresh].index.get_level_values("Position").values
                         report_indiv_positions += tuple(conf_positions)
                         logger.detail(f"Confident of positions {conf_positions} "
-                                      f"for reference: {ref} section: {sect}")
+                                      f"for reference: {ref} region: {reg}")
                     for position in report_indiv_positions:
                         report_positions += ((position,),)
                     report_files.append(file)

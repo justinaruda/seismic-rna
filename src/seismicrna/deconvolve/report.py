@@ -7,7 +7,7 @@ from ..core.report import (Field,
                            BatchedReport,
                            SampleF,
                            RefF,
-                           SectF,
+                           RegF,
                            DeconvolveMutsF,
                            DeconvolveRefsF,
                            DeconvolveClusterMappingF,
@@ -32,10 +32,10 @@ class DeconvolveReport(BatchedReport, DeconvolveIO):
     @classmethod
     def fields(cls):
         return [
-            # Sample, reference, and section information.
+            # Sample, reference, and region information.
             SampleF,
             RefF,
-            SectF,
+            RegF,
             # Clustering parameters.
             DeconvolveMutsF,
             DeconvolveRefsF,
@@ -66,7 +66,7 @@ class DeconvolveReport(BatchedReport, DeconvolveIO):
         # Initialize a new DeconvolveReport.
         return cls(sample=deconv_run.dataset.sample,
                    ref=deconv_run.dataset.ref,
-                   sect=deconv_run.dataset.sect,
+                   reg=deconv_run.dataset.region.name,
                    n_batches=deconv_run.dataset.num_batches,
                    mut_pattern=deconv_run.pattern.yes,
                    ref_pattern=deconv_run.pattern.nos,

@@ -9,13 +9,13 @@ import pandas as pd
 from .batch import DeconvolveReadBatch
 from ..core import path
 from ..core.header import ClustHeader
-from ..core.io import ReadBatchIO, SectIO
+from ..core.io import ReadBatchIO, RegIO
 from ..mask.data import MaskMutsDataset
 from .deconv import DeconvRun
 
 
 
-class DeconvolveIO(SectIO, ABC):
+class DeconvolveIO(RegIO, ABC):
 
     @classmethod
     def auto_fields(cls):
@@ -57,7 +57,7 @@ class DeconvolveBatchWriter(object):
             resps = self.deconv_run.get_resps(mask_batch.batch)
             batch_file = DeconvolveBatchIO(sample=self.dataset.sample,
                                         ref=self.dataset.ref,
-                                        sect=self.dataset.sect,
+                                        reg=self.dataset.region.name,
                                         batch=mask_batch.batch,
                                         resps=resps)
             _, checksum = batch_file.save(self.top,

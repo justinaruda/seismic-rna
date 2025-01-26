@@ -2,12 +2,13 @@ from abc import ABC, abstractmethod
 from functools import cached_property
 from itertools import chain
 from pathlib import Path
-from typing import Callable, Generator, Iterable
+from typing import Any, Callable, Generator, Iterable
 
 import pandas as pd
 from click import Argument, Option
 from plotly import graph_objects as go
 from plotly.subplots import make_subplots
+
 from ..mask.table import (MaskTable,
                           MaskPositionTableLoader,
                           MaskReadTableLoader)
@@ -17,13 +18,16 @@ from ..relate.table import (RelateTable,
 from ..cluster.table import (ClusterTable,
                              ClusterPositionTableLoader)
 from ..deconvolve.table import (DeconvolveTable,
-from ..cluster.data import ClusterMutsDataset
+                               DeconvolvePositionTableLoader)
+
 from ..core import path
 from ..core.arg import (NO_GROUP,
                         GROUP_BY_K,
                         GROUP_ALL,
                         arg_input_path,
                         opt_rels,
+                        opt_use_ratio,
+                        opt_quantile,
                         opt_cgroup,
                         opt_csv,
                         opt_html,
@@ -32,15 +36,14 @@ from ..core.arg import (NO_GROUP,
                         opt_png,
                         opt_force,
                         opt_max_procs)
-from ..core.data import Dataset, MutsDataset
-from ..core.header import NO_KS, NO_CLUSTS, format_clust_names, list_ks_clusts
+from ..core.header import Header, format_clust_names
 from ..core.seq import DNA
-from ..core.table import Table
+from ..core.table import Table, PositionTable
 from ..core.write import need_write
 
 # Define actions.
 ACTION_REL = "all"
-ACTION_MASK = "filtered"
+ACTION_MASK = "masked"
 ACTION_CLUST = "clustered"
 ACTION_DECONV = "deconvolved"
 
@@ -48,30 +51,20 @@ ACTION_DECONV = "deconvolved"
 LINKER = "__and__"
 
 
-def list_ks(source: Dataset | Table):
-    """ List the numbers of clusters for a source of data. """
-    if isinstance(source, Dataset):
-        return getattr(source, "ks", NO_KS)
-    if isinstance(source, Table):
-        return source.header.ks
-    raise TypeError(source)
-
-
-def list_clusts(source: Dataset | Table):
-    """ List the clusters for a source of data. """
-    ks = list_ks(source)
-    if ks == NO_KS:
-        return NO_CLUSTS
-    return list_ks_clusts(ks)
-
-
-def make_tracks(source: Dataset | Table, k: int | None, clust: int | None):
+def make_tracks(header: Header, k: int | None,
+                clust: int | None,
+                **kwargs):
     """ Make an index for the rows or columns of a graph. """
-    clusts = list_clusts(source)
-    if k is None and clust is None:
-        return clusts
-    return [(k_, clust_) for k_, clust_ in clusts
-            if ((k is None or k_ == k) and (clust is None or clust_ == clust))]
+    if not header.clustered():
+        # If there are no clusters, then no clusters must be selected.
+        if k or clust:
+            raise ValueError(f"Cannot select ks or clusters from {header}")
+        return header.clusts
+    # If there are any relationship names in the index, then drop them
+    # and then select the k(s) and cluster(s) for the index.
+    return header.get_clust_header().select(k=k,
+                                            clust=clust,
+                                            **kwargs).to_list()
 
 
 def _track_count(tracks: list[tuple[int, int]] | None):
@@ -84,16 +77,16 @@ def _track_titles(tracks: list[tuple[int, int]] | None):
             else None)
 
 
-def get_action_name(source: MutsDataset | Table):
-    if isinstance(source, (RelateDataset, RelateTable)):
+def get_action_name(table: Table):
+    if isinstance(table, RelateTable):
         return ACTION_REL
-    if isinstance(source, (MaskMutsDataset, MaskTable)):
+    if isinstance(table, MaskTable):
         return ACTION_MASK
-    if isinstance(source, (ClusterMutsDataset, ClusterTable)):
+    if isinstance(table, ClusterTable):
         return ACTION_CLUST
-    if isinstance(source, (DeconvolveMutsDataset,  DeconvolveTable)):
+    if isinstance(table, DeconvolveTable):
         return ACTION_DECONV
-    raise TypeError(source)
+    raise TypeError(f"Invalid table type: {type(table).__name__}")
 
 
 def make_title_action_sample(action: str, sample: str):
@@ -117,13 +110,15 @@ def make_path_subject(action: str, k: int | None, clust: int | None):
     raise ValueError(f"Invalid action: {repr(action)}")
 
 
-def cgroup_table(source: Dataset | Table, cgroup: str):
+def cgroup_table(table: Table, cgroup: str):
     if cgroup == NO_GROUP:
         # One file per cluster, with no subplots.
-        return [dict(k=k, clust=clust) for k, clust in list_clusts(source)]
+        return [dict(k=k, clust=clust)
+                for k, clust in table.header.clusts]
     elif cgroup == GROUP_BY_K:
         # One file per k, with one subplot per cluster.
-        return [dict(k=k, clust=None) for k in sorted(list_ks(source))]
+        return [dict(k=k, clust=None)
+                for k in sorted(table.header.ks)]
     elif cgroup == GROUP_ALL:
         # One file, with one subplot per cluster.
         return [dict(k=None, clust=None)]
@@ -149,7 +144,6 @@ class Annotation(object):
 
 
 class GraphBase(ABC):
-    """ Base class for all types of graphs. """
 
     @classmethod
     @abstractmethod
@@ -167,13 +161,37 @@ class GraphBase(ABC):
         return (path.SampSeg,
                 path.CmdSeg,
                 path.RefSeg,
-                path.RegSeg,
+                path.SectSeg,
                 path.GraphSeg)
+
+    def __init__(self, *,
+                 use_ratio: bool,
+                 quantile: float):
+        """
+        Parameters
+        ----------
+        use_ratio: bool
+            Use the ratio of the number of times the relationship occurs
+            to the number of occurrances of another kind of relationship
+            (which is Covered for Covered and Informed, and Informed for
+            all other relationships), rather than the raw count.
+        quantile: float
+            If `use_ratio` is True, then normalize the ratios to this
+            quantile and then winsorize them to the interval [0, 1].
+            Passing 0.0 disables normalization and winsorization.
+        """
+        self.use_ratio = use_ratio
+        self.quantile = quantile
 
     @property
     @abstractmethod
-    def codestring(self) -> str:
+    def codestring(self):
         """ String of the relationship code(s). """
+
+    @property
+    def data_kind(self):
+        """ Kind of data being used: either "ratio" or "count". """
+        return "ratio" if self.use_ratio else "count"
 
     @property
     @abstractmethod
@@ -197,28 +215,32 @@ class GraphBase(ABC):
 
     @property
     @abstractmethod
-    def reg(self) -> str:
-        """ Name of the reference region from which the data come. """
+    def sect(self) -> str:
+        """ Name of the reference section from which the data come. """
 
     @property
     @abstractmethod
     def seq(self) -> DNA:
-        """ Sequence of the region from which the data come. """
+        """ Sequence of the section from which the data come. """
 
     @cached_property
-    @abstractmethod
     def details(self) -> list[str]:
         """ Additional details about the graph. """
+        return ([f"quantile = {round(self.quantile, 3)}"] if self.use_ratio
+                else list())
 
     @property
     @abstractmethod
-    def path_subject(self) -> str:
+    def path_subject(self):
         """ Subject of the graph. """
 
-    @cached_property
-    @abstractmethod
-    def predicate(self) -> str:
+    @property
+    def predicate(self):
         """ Predicate of the graph. """
+        fields = [self.codestring, self.data_kind]
+        if self.use_ratio:
+            fields.append(f"q{round(self.quantile * 100.)}")
+        return "-".join(fields)
 
     @cached_property
     def graph_filename(self):
@@ -231,7 +253,7 @@ class GraphBase(ABC):
                 path.SAMP: self.sample,
                 path.CMD: path.CMD_GRAPH_DIR,
                 path.REF: self.ref,
-                path.REG: self.reg,
+                path.SECT: self.sect,
                 path.GRAPH: self.graph_filename}
 
     def get_path(self, ext: str):
@@ -251,8 +273,20 @@ class GraphBase(ABC):
         return "/".join(self.rel_names)
 
     @cached_property
+    def _fetch_kwargs(self) -> dict[str, Any]:
+        """ Keyword arguments for self._fetch_data. """
+        return dict(rel=self.rel_names)
+
+    def _fetch_data(self, table: PositionTable, **kwargs):
+        """ Fetch data from the table. """
+        kwargs = self._fetch_kwargs | kwargs
+        return (table.fetch_ratio(quantile=self.quantile, **kwargs)
+                if self.use_ratio
+                else table.fetch_count(**kwargs))
+
+    @cached_property
     @abstractmethod
-    def data(self) -> pd.Series | pd.DataFrame:
+    def data(self) -> pd.DataFrame:
         """ Data of the graph. """
 
     @abstractmethod
@@ -411,9 +445,13 @@ class GraphBase(ABC):
         return files
 
     @cached_property
-    @abstractmethod
-    def _title_main(self) -> list[str]:
+    def _title_main(self):
         """ Main part of the title, as a list. """
+        return [f"{self.what()} of {self.data_kind}s "
+                f"of {self.relationships} bases "
+                f"in {self.title_action_sample} "
+                f"over reference {repr(self.ref)} "
+                f"section {repr(self.sect)}"]
 
     @cached_property
     def _title_details(self):
@@ -427,11 +465,14 @@ class GraphBase(ABC):
 
 
 class GraphWriter(ABC):
-    """ Write the proper type(s) of graph. """
+    """ Write the proper graph(s) for the table(s). """
+
+    def __init__(self, *tables: Table):
+        self.tables = list(tables)
 
     @abstractmethod
     def iter_graphs(self, *args, **kwargs) -> Generator[GraphBase, None, None]:
-        """ Yield every graph. """
+        """ Yield every graph for the table. """
 
     def write(self,
               *args,
@@ -442,7 +483,7 @@ class GraphWriter(ABC):
               png: bool,
               force: bool,
               **kwargs):
-        """ Generate and write every type of graph. """
+        """ Generate and write every graph for the table. """
         return list(chain(graph.write(csv=csv,
                                       html=html,
                                       svg=svg,
@@ -452,22 +493,22 @@ class GraphWriter(ABC):
                           for graph in self.iter_graphs(*args, **kwargs)))
 
 
-#def load_pos_tables(input_paths: Iterable[str | Path]):
-#    """ Load position tables. """
-#    paths = list(input_paths)
-#    for table_type in [RelatePositionTableLoader,
-#                       MaskPositionTableLoader,
-#                       ClusterPositionTableLoader,
-#                       DeconvolvePositionTableLoader]:
-#        yield from table_type.load_tables(paths)
+def load_pos_tables(input_paths: Iterable[str | Path]):
+    """ Load position tables. """
+    paths = list(input_paths)
+    for table_type in [RelatePositionTableLoader,
+                       MaskPositionTableLoader,
+                       ClusterPositionTableLoader,
+                       DeconvolvePositionTableLoader]:
+        yield from table_type.load_tables(paths)
 
 
-#def load_read_tables(input_paths: Iterable[str | Path]):
-#    """ Load read tables. """
-#    paths = list(input_paths)
-#    for table_type in [RelateReadTableLoader,
-#                       MaskReadTableLoader]:
-#        yield from table_type.load_tables(paths)
+def load_read_tables(input_paths: Iterable[str | Path]):
+    """ Load read tables. """
+    paths = list(input_paths)
+    for table_type in [RelateReadTableLoader,
+                       MaskReadTableLoader]:
+        yield from table_type.load_tables(paths)
 
 
 class GraphRunner(ABC):
@@ -475,24 +516,15 @@ class GraphRunner(ABC):
     @classmethod
     @abstractmethod
     def get_writer_type(cls) -> type[GraphWriter]:
-       # """ Type of GraphWriter. """
-
-    @classmethod
-    @abstractmethod
-    def get_input_loader(cls) -> Callable[[tuple[str, ...]], Generator]:
-        """ Function to load input files. """
-
-    @classmethod
-    def list_input_files(cls, input_path: tuple[str, ...]):
-        """ Find, filter, and list all table files from input files. """
-        finder = cls.get_input_loader()
-        return list(finder(input_path))
+        """ Type of GraphWriter. """
 
     @classmethod
     def universal_input_params(cls):
         """ Universal parameters controlling the input data. """
         return [arg_input_path,
-                opt_rels]
+                opt_rels,
+                opt_use_ratio,
+                opt_quantile]
 
     @classmethod
     def universal_output_params(cls):
@@ -520,8 +552,19 @@ class GraphRunner(ABC):
 
     @classmethod
     @abstractmethod
+    def get_table_loader(cls) -> Callable[[tuple[str, ...]], Generator]:
+        """ Function to find and filter table files. """
+
+    @classmethod
+    def list_table_files(cls, input_path: tuple[str, ...]):
+        """ Find, filter, and list all table files from input files. """
+        finder = cls.get_table_loader()
+        return list(finder(input_path))
+
+    @classmethod
+    @abstractmethod
     def run(cls,
-           # input_path: tuple[str, ...], *,
+            input_path: tuple[str, ...], *,
             rels: tuple[str, ...],
             use_ratio: bool,
             quantile: float,
@@ -536,9 +579,23 @@ class GraphRunner(ABC):
             **kwargs) -> list[Path]:
         """ Run graphing. """
 
+
+class PosGraphRunner(GraphRunner, ABC):
+
+    @classmethod
+    def get_table_loader(cls):
+        return load_pos_tables
+
+
+class ReadGraphRunner(GraphRunner, ABC):
+
+    @classmethod
+    def get_table_loader(cls):
+        return load_read_tables
+
 ########################################################################
 #                                                                      #
-# © Copyright 2022-2025, the Rouskin Lab.                              #
+# © Copyright 2024, the Rouskin Lab.                                   #
 #                                                                      #
 # This file is part of SEISMIC-RNA.                                    #
 #                                                                      #
