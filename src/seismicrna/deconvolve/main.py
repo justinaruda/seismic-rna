@@ -17,13 +17,12 @@ from ..core.arg import (CMD_DECONVOLVE,
                         opt_force)
 from ..core.run import run_func
 from ..core.task import dispatch
-from ..mask.data import load_mask_dataset
+from ..mask.dataset import load_mask_dataset, MaskMutsDataset
 from ..core.rel import RelPattern
 
 import itertools
 
 from collections import defaultdict
-from ..mask.data import MaskMutsDataset
 
 from ..mask.table import (MaskTable,
                           MaskPositionTableLoader)

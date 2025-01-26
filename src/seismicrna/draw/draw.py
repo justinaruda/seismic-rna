@@ -78,16 +78,12 @@ rnartist {
 TEMPLATE = Template(TEMPLATE_STRING)
 RNARTIST_PATH = os.environ.get("RNARTISTCORE")
 
-TABLES = {path.CMD_MASK_DIR:(MaskPositionTable,
-                             MaskPositionTableLoader),
-          path.CMD_CLUST_DIR:(ClusterPositionTable,
-                              ClusterPositionTableLoader),
-          path.CMD_DECONV_DIR:(DeconvolvePositionTable,
-                               DeconvolvePositionTableLoader)}
 TABLES = {AVERAGE_PREFIX: (MaskPositionTable,
                            MaskPositionTableLoader),
           path.CLUSTER_STEP: (ClusterPositionTable,
-                              ClusterPositionTableLoader)}
+                              ClusterPositionTableLoader),
+          path.DECONVOLVE_STEP:(DeconvolvePositionTable,
+                               DeconvolvePositionTableLoader)}
 
 
 class ColorBlock:

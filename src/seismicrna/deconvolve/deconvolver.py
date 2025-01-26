@@ -1,10 +1,10 @@
 from functools import cached_property, cache
 
 from ..cluster.batch import ClusterMutsBatch
-from ..cluster.data import ClusterMutsDataset
+from ..cluster.dataset import ClusterMutsDataset
 from ..core.header import list_ks_clusts
 from ..mask.batch import MaskMutsBatch
-from ..mask.data import MaskReadDataset, MaskMutsDataset
+from ..mask.dataset import MaskReadDataset, MaskMutsDataset
 from ..core.rel.pattern import RelPattern
 
 from ..mask.table import MaskTabulator, MaskPosTableWriter

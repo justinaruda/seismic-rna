@@ -10,7 +10,7 @@ from ..cluster.uniq import UniqReads
 from ..core.array import get_length
 from ..core.header import ClustHeader
 from ..core.logs import logger
-from ..core.mu import calc_nrmsd, calc_pearson
+from ..core.mu import calc_norm_rmsd, calc_pearson
 from ..core.unbias import calc_params, calc_params_observed
 
 
@@ -20,7 +20,7 @@ from ..core.unbias import calc_params, calc_params_observed
 
 
 from ..core.rel.pattern import RelPattern
-from seismicrna.mask.data import MaskMutsDataset
+from seismicrna.mask.dataset import MaskMutsDataset
 from seismicrna.mask.batch import MaskMutsBatch
 from seismicrna.core.header import ClustHeader, list_ks_clusts
 

@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 
 from ..core.seq import DNA
-from .data import DeconvolveMutsDataset
+from .dataset import DeconvolveMutsDataset
 from ..core import path
 from ..core.header import (ClustHeader,
                            RelClustHeader,
@@ -46,7 +46,7 @@ class DeconvolveTable(RelTypeTable, ABC):
 
     @classmethod
     def kind(cls):
-        return path.CMD_DECONV_DIR
+        return path.DECONVOLVE_STEP
 
     @classmethod
     def header_type(cls):
@@ -134,7 +134,7 @@ class DeconvolveAbundanceTable(AbundanceTable, PartialTable, ABC):
 
     @classmethod
     def kind(cls):
-        return path.CMD_DECONV_DIR
+        return path.DECONVOLVE_STEP
 
     @classmethod
     def header_type(cls):

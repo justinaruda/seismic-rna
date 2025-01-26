@@ -10,7 +10,7 @@ from .batch import DeconvolveReadBatch
 from ..core import path
 from ..core.header import ClustHeader
 from ..core.io import ReadBatchIO, RegIO
-from ..mask.data import MaskMutsDataset
+from ..mask.dataset import MaskMutsDataset
 from .deconv import DeconvRun
 
 

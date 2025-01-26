@@ -5,7 +5,7 @@ from typing import Iterable
 
 import numpy as np
 
-from .data import DeconvolveMutsDataset
+from .dataset import DeconvolveMutsDataset
 from .deconv import DeconvRun
 from .io import DeconvolveBatchWriter
 from .report import DeconvolveReport
@@ -19,7 +19,7 @@ from ..core.task import dispatch
 from ..core.tmp import release_to_out
 from ..core.types import get_max_uint
 from ..core.write import need_write
-from ..mask.data import load_mask_dataset
+from ..mask.dataset import load_mask_dataset
 from ..mask.report import MaskReport
 
 

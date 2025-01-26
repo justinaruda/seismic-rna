@@ -8,7 +8,7 @@ from .batch import DeconvolveMutsBatch
 from .io import DeconvolveBatchIO
 from .report import DeconvolveReport
 from ..core.batch import MutsBatch
-from ..core.data import (Dataset,
+from ..core.dataset import (Dataset,
                          LoadedDataset,
                          LoadFunction,
                          MergedUnbiasDataset,
@@ -19,13 +19,13 @@ from ..core.header import (NUM_CLUSTS_NAME,
                            list_clusts,
                            list_ks_clusts,
                            validate_ks)
-from ..core.join.data import (BATCH_NUM,
-                              READ_NUMS,
-                              SEG_END5S,
-                              SEG_END3S,
-                              MUTS,
-                              RESPS,
-                              JoinMutsDataset)
+from ..core.join import (BATCH_NUM,
+                         READ_NUMS,
+                         SEG_END5S,
+                         SEG_END3S, 
+                         MUTS,
+                         RESPS,
+                         JoinMutsDataset)
 from ..core.report import (DeconvolveMutsF,
                            DeconvolveRefsF,
                            DeconvolveClusterMappingF,
@@ -37,7 +37,7 @@ from ..core.report import (DeconvolveMutsF,
                            DeconvolveNoProbeSampleF,
                            DeconvolveOnlyProbeSampleF)
 from ..mask.batch import MaskMutsBatch
-from ..mask.data import load_mask_dataset
+from ..mask.dataset import load_mask_dataset
 from ..mask.report import MaskReport
 from ..mask.table import MaskPositionTable
 

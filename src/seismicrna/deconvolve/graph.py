@@ -161,7 +161,7 @@ class OneRelDeconvolvedProfileGraph(OneRelProfileGraph):
             if mapped_indexes:
                 kwargs[K_CLUST_KEY] = mapped_indexes
         super().__init__(**kwargs)
-
+    
     @cached_property
     def row_titles(self):
         """ Titles of the rows. """

@@ -158,13 +158,13 @@ class BaseGraph(ABC):
 
     @property
     @abstractmethod
-    def sect(self) -> str:
-        """ Name of the reference section from which the data come. """
+    def reg(self) -> str:
+        """ Name of the reference region from which the data come. """
 
     @property
     @abstractmethod
     def seq(self) -> DNA:
-        """ Sequence of the section from which the data come. """
+        """ Sequence of the region from which the data come. """
 
     @cached_property
     def details(self) -> list[str]:
