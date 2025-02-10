@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from .batch import format_read_name
-from .io import QnamesBatchIO, RelateBatchIO
+from .io import ReadNamesBatchIO, RelateBatchIO
 from .report import RelateReport
 from ..core.io import RefseqIO
 from ..core.seq import DNA
@@ -38,7 +38,7 @@ def simulate_batch(sample: str,
                    min_mut_gap: int,
                    num_reads: int,
                    formatter: Callable[[int, int], str] = format_read_name):
-    """ Simulate a pair of RelateBatchIO and QnamesBatchIO. """
+    """ Simulate a pair of RelateBatchIO and ReadNamesBatchIO. """
     relate_batch = RelateBatchIO.simulate(sample=sample,
                                           ref=ref,
                                           batch=batch,
@@ -51,12 +51,12 @@ def simulate_batch(sample: str,
                                           p_rev=p_rev,
                                           min_mut_gap=min_mut_gap,
                                           num_reads=num_reads)
-    qnames_batch = QnamesBatchIO.simulate(sample=sample,
-                                          ref=ref,
-                                          batch=batch,
-                                          num_reads=relate_batch.num_reads,
-                                          formatter=formatter)
-    return relate_batch, qnames_batch
+    names_batch = ReadNamesBatchIO.simulate(sample=sample,
+                                            ref=ref,
+                                            batch=batch,
+                                            num_reads=relate_batch.num_reads,
+                                            formatter=formatter)
+    return relate_batch, names_batch
 
 
 def simulate_cluster(first_batch: int,
@@ -89,9 +89,9 @@ def simulate_batches(batch_size: int,
                                    pclust.index)
     # Simulate batches for each cluster.
     first_batch = 0
-    for order, cluster in pclust.index:
-        num_reads_cluster = num_reads_clusters.loc[(order, cluster)]
-        pmut_cluster = pmut.loc[:, (slice(None), order, cluster)]
+    for k, clust in pclust.index:
+        num_reads_cluster = num_reads_clusters.loc[(k, clust)]
+        pmut_cluster = pmut.loc[:, (slice(None), k, clust)]
         for batch in simulate_cluster(first_batch,
                                       batch_size,
                                       num_reads_cluster,
@@ -130,7 +130,7 @@ def simulate_relate(*,
                                               force=True)
         # Simulate and write the batches.
         checksums = {RelateBatchIO.btype(): list(),
-                     QnamesBatchIO.btype(): list()}
+                     ReadNamesBatchIO.btype(): list()}
         n_batches = 0
         read_count = 0
         for rbatch, nbatch in simulate_batches(sample=sample,
@@ -150,7 +150,7 @@ def simulate_relate(*,
                                     brotli_level=brotli_level,
                                     force=True)
             checksums[RelateBatchIO.btype()].append(rcheck)
-            checksums[QnamesBatchIO.btype()].append(ncheck)
+            checksums[ReadNamesBatchIO.btype()].append(ncheck)
             n_batches += 1
             read_count += rbatch.num_reads
         ended = datetime.now()
@@ -160,7 +160,9 @@ def simulate_relate(*,
                               min_mapq=0,
                               phred_enc=0,
                               min_phred=0,
+                              insert3=False,
                               ambindel=False,
+                              ambindel_max_iter=0,
                               clip_end5=0,
                               clip_end3=0,
                               min_reads=0,

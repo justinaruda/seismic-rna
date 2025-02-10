@@ -1,33 +1,20 @@
 from concurrent.futures import Future, ProcessPoolExecutor
-from itertools import chain, filterfalse, repeat
-from logging import getLogger
+from inspect import getmodule
+from itertools import filterfalse, repeat
 from typing import Any, Callable, Iterable
 
-from .logs import exc_info, get_config, set_config
-
-logger = getLogger(__name__)
+from .logs import logger, get_config, set_config
 
 
-def get_num_parallel(n_tasks: int,
-                     max_procs: int,
-                     parallel: bool,
-                     hybrid: bool = False) -> tuple[int, int]:
-    """
-    Determine how to parallelize the tasks.
+def calc_pool_size(num_tasks: int, max_procs: int):
+    """ Calculate the size of a process pool.
 
     Parameters
     ----------
-    n_tasks: int
+    num_tasks: int
         Number of tasks to parallelize. Must be ≥ 1.
     max_procs: int
         Maximum number of processes to run at one time. Must be ≥ 1.
-    parallel: bool
-        Whether multiple tasks may be run in parallel. If False, then
-        the number of tasks to run in parallel is set to 1, but the
-        number of processes to run for each task may be > 1.
-    hybrid: bool = False
-        Whether to allow both multiple tasks to run in parallel and,
-        at the same, each task to run multiple processes in parallel.
 
     Returns
     -------
@@ -35,55 +22,31 @@ def get_num_parallel(n_tasks: int,
         - Number of tasks to run in parallel. Always ≥ 1.
         - Number of processes to run for each task. Always ≥ 1.
     """
-    if n_tasks >= 1 and max_procs >= 1:
-        # This function only works if there is at least one task to
-        # parallelize, at least one process is allowed, and parallel
-        # is a valid option.
-        if parallel:
-            # Multiple tasks may be run in parallel. The number of tasks
-            # run in parallel cannot exceed 1) the total number of tasks
-            # and 2) the user-specified maximum number of processes.
-            n_tasks_parallel = min(n_tasks, max_procs)
-        else:
-            # Otherwise, only one task at a time can be run.
-            n_tasks_parallel = 1
-        if n_tasks_parallel == 1 or hybrid:
-            # Each individual task can be run by multiple processes in
-            # parallel, as long as either 1) multiple tasks are not run
-            # simultaneously in parallel (i.e. n_tasks_parallel == 1)
-            # or 2) the calling function sets hybrid=True, which lets
-            # multiple tasks run in parallel and each run with multiple
-            # processes. Only the alignment module can simultaneously
-            # run multiple tasks and multiple processes for each task
-            # because its two most computation-heavy processes (cutadapt
-            # and bowtie2) come with their own parallelization abilities
-            # that can work independently of Python's multiprocessing
-            # module. However, the other modules (e.g. vectoring) are
-            # parallelized using the multiprocessing module, which does
-            # not support "nesting" parallelization in multiple layers.
-            # Because n_tasks_parallel is either 1 or the smallest of
-            # n_tasks and n_procs (both of which are ≥ 1), it must be
-            # that 1 ≤ n_tasks_parallel ≤ n_procs, and therefore that
-            # 1 ≤ n_procs / n_tasks_parallel ≤ n_procs, so the
-            # integer quotient must be a valid number of processes.
-            n_procs_per_task = max_procs // n_tasks_parallel
-        else:
-            # Otherwise, only one process can work on each task.
-            n_procs_per_task = 1
+    if max_procs < 1:
+        logger.warning(f"max_procs must be ≥ 1, but got {max_procs}; "
+                       f"defaulting to 1")
+        max_procs = 1
+    if num_tasks < 1:
+        logger.warning(f"num_tasks must be ≥ 1, but got {num_tasks}; "
+                       f"defaulting to 1")
+        num_tasks = 1
+    # The number of tasks that can run simultaneously is the smallest
+    # of (a) the number of tasks and (b) the number of processors minus
+    # one, since one processor must be reserved for the parent process
+    # that is managing the process pool.
+    max_child_procs = max(max_procs - 1, 1)
+    max_simultaneous = min(num_tasks, max_child_procs)
+    if max_simultaneous > 1:
+        # Parallelize the tasks, controlled by the parent process, and
+        # distribute the child processors evenly among the pooled tasks.
+        pool_size = max_simultaneous
+        num_procs_per_task = max_child_procs // pool_size
     else:
-        logger.warning("Defaulting to 1 process due to invalid number of "
-                       f"tasks ({n_tasks}) and/or processes ({max_procs}).")
-        n_tasks_parallel = 1
-        n_procs_per_task = 1
-    return n_tasks_parallel, n_procs_per_task
-
-
-def fmt_func_args(func: Callable, *args, **kwargs):
-    """ Format the name and arguments of a function as a string. """
-    fargs = ", ".join(chain(map(repr, args),
-                            (f"{kw}={repr(arg)}"
-                             for kw, arg in kwargs.items())))
-    return f"{func.__name__}({fargs})"
+        # Run tasks serially; each task runs in the same process as the
+        # parent and can thus have all processors.
+        pool_size = 1
+        num_procs_per_task = max_procs
+    return pool_size, num_procs_per_task
 
 
 class Task(object):
@@ -95,30 +58,44 @@ class Task(object):
         self._func = func
         self._config = get_config()
 
+    @property
+    def name(self):
+        return f"{getmodule(self._func).__name__}.{self._func.__name__}"
+
     def __call__(self, *args, **kwargs):
         """ Call the task's function in a try-except block, return the
         result if it succeeds, and return None otherwise. """
         if get_config() != self._config:
-            # Tasks running in parallel may not have the same top logger
-            # as the parent process (this seems to be system dependent).
+            # Tasks running in parallel may not have the same logger as
+            # the parent process (this seems to be system-dependent).
             # If not, then this task's top logger must be configured to
             # match the configuration of the parent process.
             set_config(*self._config)
-        task = fmt_func_args(self._func, *args, **kwargs)
+            close_file_stream = True
+        else:
+            close_file_stream = False
         try:
-            logger.debug(f"Began task {task}")
+            logger.task(f"Began {self.name}")
             result = self._func(*args, **kwargs)
         except Exception as error:
-            logger.error(f"Failed task {task}:\n{error}\n", exc_info=exc_info())
+            logger.error(error)
         else:
-            logger.debug(f"Ended task {task}:\n{result}\n")
+            logger.task(f"Ended {self.name}")
             return result
+        finally:
+            if close_file_stream and logger.file_stream is not None:
+                # If the logger's configuration needed to be set, then
+                # it is not the same logger as for the parent process.
+                # That means that it is using a separate file stream,
+                # which should be closed explicitly to free up file
+                # resources when this task finishes.
+                logger.file_stream.close()
 
 
 def dispatch(funcs: list[Callable] | Callable,
-             max_procs: int, parallel: bool, *,
-             hybrid: bool = False,
+             max_procs: int,
              pass_n_procs: bool = True,
+             raise_on_error: bool = False,
              args: list[tuple] | tuple = (),
              kwargs: dict[str, Any] | None = None):
     """
@@ -135,22 +112,21 @@ def dispatch(funcs: list[Callable] | Callable,
         positional arguments; and if `args` is a list of tuples, it is
         called for each tuple of positional arguments in `args`.
     max_procs: int
-        See docstring for `get_num_parallel`.
-    parallel: bool
-        See docstring for `get_num_parallel`.
-    hybrid: bool = False
-        See docstring for `get_num_parallel`.
-    pass_n_procs: bool = True
+        Maximum number of processes to run at one time. Must be ≥ 1.
+    pass_n_procs: bool
         Whether to pass the number of processes to the function as the
         keyword argument `n_procs`.
-    args: list[tuple] | tuple = ()
+    raise_on_error: bool
+        Whether to raise an error if any tasks fail (if False, only log
+        a warning message).
+    args: list[tuple] | tuple
         Positional arguments to pass to each function in `funcs`. Can be
         a list of tuples of positional arguments or a single tuple that
         is not in a list. If a single tuple, then each function receives
         `args` as positional arguments. If a list, then `args` must be
         the same length as `funcs`; each function `funcs[i]` receives
         `args[i]` as positional arguments.
-    kwargs: dict[str, Any] | None = None
+    kwargs: dict[str, Any] | None
         Keyword arguments to pass to every function call.
 
     Returns
@@ -186,20 +162,21 @@ def dispatch(funcs: list[Callable] | Callable,
         raise ValueError(f"Got {len(funcs)} funcs but {len(args)} args")
     if n_tasks == 0:
         # No tasks to run: return.
-        logger.warning("No tasks were given to dispatch")
+        logger.task("No tasks were given to dispatch")
         return list()
     # Determine how to parallelize each task.
-    n_tasks_parallel, n_procs_per_task = get_num_parallel(n_tasks,
-                                                          max_procs,
-                                                          parallel,
-                                                          hybrid=hybrid)
+    pool_size, n_procs_per_task = calc_pool_size(n_tasks, max_procs)
     if pass_n_procs:
         # Add the number of processes as a keyword argument.
         kwargs = {**kwargs, "n_procs": n_procs_per_task}
-    if n_tasks_parallel > 1:
+        logger.detail(f"Calculated size of process pool: {pool_size}, "
+                      f"each with {n_procs_per_task} processor(s)")
+    else:
+        logger.detail(f"Calculated size of process pool: {pool_size}")
+    if pool_size > 1:
         # Run the tasks in parallel.
-        with ProcessPoolExecutor(max_workers=n_tasks_parallel) as pool:
-            logger.info(f"Opened pool of {n_tasks_parallel} processes")
+        with ProcessPoolExecutor(max_workers=pool_size) as pool:
+            logger.task(f"Opened pool of {pool_size} processes")
             # Initialize an empty list of tasks to run.
             tasks: list[Future] = list()
             for func, task_args in zip(funcs, args, strict=True):
@@ -208,12 +185,12 @@ def dispatch(funcs: list[Callable] | Callable,
                 tasks.append(pool.submit(task, *task_args, **kwargs))
             # Run all the tasks in parallel and collect the results as
             # they become available.
-            logger.info(f"Waiting for {n_tasks} tasks to finish")
+            logger.task(f"Waiting for {n_tasks} tasks to finish")
             results = [task.result() for task in tasks]
-        logger.info(f"Closed pool of {n_tasks_parallel} processes")
+        logger.task(f"Closed pool of {pool_size} processes")
     else:
         # Run the tasks in series.
-        logger.info(f"Began running {n_tasks} task(s) in series")
+        logger.task(f"Began running {n_tasks} task(s) in series")
         # Initialize an empty list of results from the tasks.
         results = list()
         for func, task_args in zip(funcs, args, strict=True):
@@ -221,18 +198,19 @@ def dispatch(funcs: list[Callable] | Callable,
             # its result to the list of results.
             task = Task(func)
             results.append(task(*task_args, **kwargs))
-        logger.info(f"Ended running {n_tasks} task(s) in series")
+        logger.task(f"Ended running {n_tasks} task(s) in series")
     # Remove any failed runs (None values) from results.
     results = [result for result in results if result is not None]
     n_pass = len(results)
     n_fail = n_tasks - n_pass
     if n_fail:
         p_fail = n_fail / n_tasks * 100.
-        logger.warning(
-            f"Failed {n_fail} of {n_tasks} task(s) ({round(p_fail, 1)} %)"
-        )
+        message = f"Failed {n_fail} of {n_tasks} task(s) ({round(p_fail, 1)} %)"
+        if raise_on_error:
+            raise RuntimeError(message)
+        logger.warning(message)
     else:
-        logger.info(f"All {n_tasks} task(s) completed successfully")
+        logger.task(f"All {n_tasks} task(s) completed successfully")
     return results
 
 
@@ -242,24 +220,3 @@ def as_list_of_tuples(args: Iterable[Any]):
     for creating a list of tuples to pass to the `args` parameter of
     `dispatch`. """
     return [(arg,) for arg in args]
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

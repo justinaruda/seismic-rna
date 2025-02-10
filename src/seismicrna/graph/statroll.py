@@ -5,8 +5,10 @@ from typing import Callable
 import pandas as pd
 from plotly import graph_objects as go
 
-from .base import PosGraphWriter, PosGraphRunner
-from .onetable import OneTableGraph, OneTableRunner, OneTableWriter
+from .table import TableWriter, PositionTableRunner
+from .onetable import (OneTableRelClusterGroupGraph,
+                       OneTableRelClusterGroupRunner,
+                       OneTableRelClusterGroupWriter)
 from .rel import OneRelGraph
 from .roll import RollingGraph, RollingRunner
 from .trace import iter_line_traces
@@ -14,7 +16,10 @@ from ..core.header import format_clust_name
 from ..core.seq import iter_windows
 
 
-class RollingStatGraph(OneTableGraph, OneRelGraph, RollingGraph, ABC):
+class RollingStatGraph(OneTableRelClusterGroupGraph,
+                       OneRelGraph,
+                       RollingGraph,
+                       ABC):
 
     @classmethod
     @abstractmethod
@@ -25,7 +30,7 @@ class RollingStatGraph(OneTableGraph, OneRelGraph, RollingGraph, ABC):
     def data(self):
         stat_func = self.stat_func()
         data = self._fetch_data(self.table,
-                                order=self.order,
+                                k=self.k,
                                 clust=self.clust)
         stat = pd.DataFrame(index=data.index, dtype=float)
         for cluster, cluster_data in data.items():
@@ -35,8 +40,8 @@ class RollingStatGraph(OneTableGraph, OneRelGraph, RollingGraph, ABC):
                                                   min_count=self._min_count):
                 cluster_stat.loc[center] = stat_func(window)
             if isinstance(cluster, tuple):
-                _, order, clust = cluster
-                label = format_clust_name(order, clust)
+                _, k, clust = cluster
+                label = format_clust_name(k, clust)
             else:
                 label = cluster
             stat[label] = cluster_stat
@@ -52,7 +57,7 @@ class RollingStatGraph(OneTableGraph, OneRelGraph, RollingGraph, ABC):
         fig.update_yaxes(gridcolor="#d0d0d0")
 
 
-class RollingStatWriter(OneTableWriter, PosGraphWriter, ABC):
+class RollingStatWriter(OneTableRelClusterGroupWriter, TableWriter, ABC):
 
     @classmethod
     @abstractmethod
@@ -64,26 +69,8 @@ class RollingStatWriter(OneTableWriter, PosGraphWriter, ABC):
         return graph_type(table=self.table, rel=rels_group, **kwargs)
 
 
-class RollingStatRunner(RollingRunner, OneTableRunner, PosGraphRunner, ABC):
+class RollingStatRunner(OneTableRelClusterGroupRunner,
+                        RollingRunner,
+                        PositionTableRunner,
+                        ABC):
     pass
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

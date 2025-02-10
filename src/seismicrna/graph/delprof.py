@@ -1,22 +1,25 @@
 import os
-from logging import getLogger
 
 import numpy as np
 from click import command
 from plotly import graph_objects as go
 
-from .base import PosGraphWriter, PosGraphRunner
 from .color import ColorMapGraph, SeqColorMap
+from .rel import OneRelGraph
+from .table import PositionTableRunner
 from .trace import iter_seq_base_bar_traces
-from .twotable import TwoTableRunner, TwoTableWriter, TwoTableMergedGraph
+from .twotable import (TwoTableMergedClusterGroupGraph,
+                       TwoTableRelClusterGroupWriter,
+                       TwoTableRelClusterGroupRunner)
+from ..core.run import log_command
 from ..core.seq import POS_NAME
-
-logger = getLogger(__name__)
 
 COMMAND = __name__.split(os.path.extsep)[-1]
 
 
-class DeltaProfileGraph(TwoTableMergedGraph, ColorMapGraph):
+class DeltaProfileGraph(TwoTableMergedClusterGroupGraph,
+                        OneRelGraph,
+                        ColorMapGraph):
 
     @classmethod
     def graph_kind(cls):
@@ -56,42 +59,26 @@ class DeltaProfileGraph(TwoTableMergedGraph, ColorMapGraph):
         fig.update_yaxes(gridcolor="#d0d0d0")
 
 
-class DeltaProfileWriter(TwoTableWriter, PosGraphWriter):
+class DeltaProfileWriter(TwoTableRelClusterGroupWriter):
 
     @classmethod
     def get_graph_type(cls):
         return DeltaProfileGraph
 
 
-class DeltaProfileRunner(TwoTableRunner, PosGraphRunner):
+class DeltaProfileRunner(TwoTableRelClusterGroupRunner, PositionTableRunner):
 
     @classmethod
     def get_writer_type(cls):
         return DeltaProfileWriter
+
+    @classmethod
+    @log_command(COMMAND)
+    def run(cls, *args, **kwargs):
+        return super().run(*args, **kwargs)
 
 
 @command(COMMAND, params=DeltaProfileRunner.params())
 def cli(*args, **kwargs):
     """ Bar graph of differences between two profiles per position. """
     return DeltaProfileRunner.run(*args, **kwargs)
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

@@ -1,12 +1,5 @@
-"""
-
-FASTA Cleaner Module
-
-"""
-
 import re
 from functools import cached_property
-from logging import getLogger
 from pathlib import Path
 
 from ..core.seq import (BASEN,
@@ -18,8 +11,6 @@ from ..core.seq import (BASEN,
                         extract_fasta_seqname,
                         format_fasta_name_line)
 from ..core.write import need_write, write_mode
-
-logger = getLogger(__name__)
 
 
 def get_non_seq_regex(seq_type: type[XNA]):
@@ -79,24 +70,3 @@ def clean_fasta(fasta_in: Path, fasta_out: Path, force: bool = False):
     # By convention, a function must return a Path for dispatch to deem
     # that it has completed successfully.
     return fasta_out
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

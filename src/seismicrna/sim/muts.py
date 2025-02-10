@@ -1,8 +1,7 @@
 import os
 from itertools import chain
-from logging import getLogger
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import numpy as np
 import pandas as pd
@@ -15,9 +14,8 @@ from ..core.arg import (opt_ct_file,
                         opt_vmut_paired,
                         opt_vmut_unpaired,
                         opt_force,
-                        opt_parallel,
                         opt_max_procs)
-from ..core.header import RelClustHeader, make_header, list_clusts
+from ..core.header import RelClustHeader, list_clusts, make_header, parse_header
 from ..core.rel import (MATCH,
                         NOCOV,
                         DELET,
@@ -30,7 +28,8 @@ from ..core.rel import (MATCH,
                         ANY_H,
                         ANY_V,
                         ANY_N,
-                        REL_TYPE)
+                        REL_TYPE,
+                        RelPattern)
 from ..core.rna import UNPAIRED, find_enclosing_pairs, from_ct
 from ..core.run import run_func
 from ..core.seq import (BASE_NAME,
@@ -45,8 +44,6 @@ from ..core.seq import (BASE_NAME,
 from ..core.stats import calc_beta_params, calc_dirichlet_params
 from ..core.task import as_list_of_tuples, dispatch
 from ..core.write import need_write
-
-logger = getLogger(__name__)
 
 COMMAND = __name__.split(os.path.extsep)[-1]
 
@@ -77,7 +74,7 @@ def verify_proportions(p: Any):
 
 
 def make_pmut_means(*,
-                    ploq: float = 0.04,
+                    ploq: float = 0.02,
                     pam: float,
                     pac: float = 0.30,
                     pag: float = 0.16,
@@ -162,6 +159,7 @@ def make_pmut_means(*,
     """
     if not 0. <= ploq <= 1.:
         raise ValueError(f"ploq must be ≥ 0 and ≤ 1, but got {ploq}")
+    # Probability that a base is high-quality.
     phiq = 1. - ploq
     # Mutations at A bases.
     pas = [pac, pag, pat]
@@ -278,7 +276,8 @@ def sim_pmut(positions: pd.Index,
         mean_nonzero = mean.loc[mean[base] != 0., base]
         var_nonzero = relative_variance * (mean_nonzero * (1. - mean_nonzero))
         # Simulate the mutation rates.
-        if (num_nonzero := np.count_nonzero(mean_nonzero)) > 1:
+        num_nonzero = np.count_nonzero(mean_nonzero)
+        if num_nonzero > 1:
             pmut_base = rng.dirichlet(calc_dirichlet_params(mean_nonzero.values,
                                                             var_nonzero.values),
                                       size=base_pos.size)
@@ -293,14 +292,14 @@ def sim_pmut(positions: pd.Index,
     return pmut
 
 
-def _make_pmut_means_kwargs(pmut: tuple[tuple[str, float], ...]):
+def _make_pmut_means_kwargs(pmut: Iterable[tuple[str, float]]):
     """ Make keyword arguments for `make_pmut_means`. """
     return {f"p{mut}": p for mut, p in pmut}
 
 
 def run_struct(ct_file: Path,
-               pmut_paired: tuple[tuple[str, float], ...],
-               pmut_unpaired: tuple[tuple[str, float], ...],
+               pmut_paired: Iterable[tuple[str, float]],
+               pmut_unpaired: Iterable[tuple[str, float]],
                vmut_paired: float,
                vmut_unpaired: float,
                force: bool):
@@ -342,8 +341,7 @@ def run_struct(ct_file: Path,
         # Assemble mutation rates for each structure.
         rels = mu_paired[unpair].columns
         header = make_header(rels=map(str, rels),
-                             max_order=num_structures,
-                             min_order=num_structures)
+                             ks=[num_structures])
         pmut = pd.DataFrame(np.nan, index, header.index)
         for structure, cluster in zip(structures,
                                       list_clusts(num_structures),
@@ -376,20 +374,34 @@ def load_pmut(pmut_file: Path):
     return pmut
 
 
-@run_func(logger.critical)
+def calc_pmut_pattern(pmut: pd.DataFrame, pattern: RelPattern):
+    """ Calculate the rate of a given type of mutation. """
+    header = parse_header(pmut.columns)
+    rels = list(map(int, header.get_rel_header().index))
+    # Accumulate the frequencies of all selected mutations.
+    fmut = pd.DataFrame(0., pmut.index, header.get_clust_header().index)
+    for base in DNA.alph():
+        positions = fmut.index[fmut.index.get_level_values(BASE_NAME) == base]
+        for rel in rels:
+            if all(pattern.fits(base, rel)):
+                fmut.loc[positions] += pmut.loc[positions, rel]
+    # Divide the frequency of mutations by the frequency of mutations plus
+    # matches (i.e. informative bases) to calculate the mutation rate.
+    return fmut / (pmut.loc[:, MATCH] + fmut)
+
+
+@run_func(COMMAND)
 def run(*,
-        ct_file: tuple[str, ...],
-        pmut_paired: tuple[tuple[str, float], ...],
-        pmut_unpaired: tuple[tuple[str, float], ...],
+        ct_file: Iterable[str | Path],
+        pmut_paired: Iterable[tuple[str, float]],
+        pmut_unpaired: Iterable[tuple[str, float]],
         vmut_paired: float,
         vmut_unpaired: float,
         force: bool,
-        parallel: bool,
         max_procs: int):
     """ Simulate the rate of each kind of mutation at each position. """
     return dispatch(run_struct,
                     max_procs=max_procs,
-                    parallel=parallel,
                     pass_n_procs=False,
                     args=as_list_of_tuples(map(Path, ct_file)),
                     kwargs=dict(pmut_paired=pmut_paired,
@@ -406,7 +418,6 @@ params = [
     opt_vmut_paired,
     opt_vmut_unpaired,
     opt_force,
-    opt_parallel,
     opt_max_procs
 ]
 

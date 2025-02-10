@@ -11,15 +11,15 @@ class RNAState(RNAStructure, RNAProfile):
     @classmethod
     def from_struct_profile(cls, struct: RNAStructure, profile: RNAProfile):
         """ Make an RNAState from an RNAStructure and an RNAProfile. """
-        if struct.section.ref != profile.section.ref:
+        if struct.region.ref != profile.region.ref:
             raise ValueError("Reference names differ between "
-                             f"structure ({repr(struct.section.ref)}) "
-                             f"and profile ({repr(profile.section.ref)})")
-        return cls(section=struct.section,
+                             f"structure ({repr(struct.region.ref)}) "
+                             f"and profile ({repr(profile.region.ref)})")
+        return cls(region=struct.region,
                    title=struct.title,
                    pairs=struct.pairs,
                    sample=profile.sample,
-                   data_sect=profile.data_sect,
+                   data_reg=profile.data_reg,
                    data_name=profile.data_name,
                    data=profile.data)
 
@@ -33,25 +33,3 @@ class RNAState(RNAStructure, RNAProfile):
 
     def rolling_auc(self, size: int, min_data: int = 2):
         return compute_rolling_auc(self.is_paired, self.data, size, min_data)
-
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

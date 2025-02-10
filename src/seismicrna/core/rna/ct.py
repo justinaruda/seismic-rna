@@ -1,24 +1,21 @@
-from logging import getLogger
 from pathlib import Path
 from typing import TextIO
 
 from .. import path
-from ..seq import RNA, Section
-
-logger = getLogger(__name__)
+from ..seq import RNA, Region
 
 
 NUM_FIELDS = 6
 
 
-def _parse_int(text: str, name: str, allow_zero: bool = False) -> int:
+def _parse_int(text: str, name: str, zero_ok: bool = False) -> int:
     """ Try to parse the text into an integer/positive integer. """
     try:
         value = int(text)
     except ValueError:
         value = -1
-    if value < 0 or (value == 0 and not allow_zero):
-        s = "non-negative" if allow_zero else "positive"
+    if value < 0 or (value == 0 and not zero_ok):
+        s = "non-negative" if zero_ok else "positive"
         raise ValueError(f"{name} must be a {s} integer, but got {repr(text)}")
     return value
 
@@ -49,7 +46,7 @@ def _parse_ct_body_line(line: str, first: bool, last: bool):
         raise ValueError(f"CT body line needs {NUM_FIELDS} fields,"
                          f"but got {len(fields)}: '{content}'")
     curr_idx = _parse_int(fields[0], "current index")
-    prev_idx = _parse_int(fields[2], "previous index", allow_zero=first)
+    prev_idx = _parse_int(fields[2], "previous index", zero_ok=first)
     if first:
         if prev_idx != 0:
             raise ValueError(f"Expected previous index of first line "
@@ -57,7 +54,7 @@ def _parse_ct_body_line(line: str, first: bool, last: bool):
     elif prev_idx != curr_idx - 1:
         raise ValueError(f"Previous index ({prev_idx}) does not precede "
                          f"current index ({curr_idx})")
-    next_idx = _parse_int(fields[3], "next index", allow_zero=last)
+    next_idx = _parse_int(fields[3], "next index", zero_ok=last)
     if last:
         if next_idx != 0:
             raise ValueError(f"Expected next index of last line to be 0, "
@@ -65,7 +62,7 @@ def _parse_ct_body_line(line: str, first: bool, last: bool):
     elif next_idx != curr_idx + 1:
         raise ValueError(f"Next index ({next_idx}) does not succeed "
                          f"current index ({curr_idx})")
-    partner = _parse_int(fields[4], "partner index", allow_zero=True)
+    partner = _parse_int(fields[4], "partner index", zero_ok=True)
     position = _parse_int(fields[5], "natural position")
     base = fields[1]
     return curr_idx, base, partner, position
@@ -166,7 +163,7 @@ def _parse_ct_structure(ct_file: TextIO, length: int):
 
 
 def parse_ct(ct_path: Path):
-    """ Yield the title, section, and base pairs for each structure in a
+    """ Yield the title, region, and base pairs for each structure in a
     connectivity table (CT) file.
 
     Parameters
@@ -176,15 +173,15 @@ def parse_ct(ct_path: Path):
 
     Returns
     -------
-    Generator[tuple[str, Section, list[tuple[int, int]]], Any, None]
+    Generator[tuple[str, Region, list[tuple[int, int]]], Any, None]
     """
-    # Determine the reference and section names from the path.
+    # Determine the reference and region names from the path.
     fields = path.parse(ct_path,
                         path.RefSeg,
-                        path.SectSeg,
+                        path.RegSeg,
                         path.ConnectTableSeg)
     ref = fields[path.REF]
-    sect = fields[path.SECT]
+    reg = fields[path.REG]
     # Parse each structure in the CT file.
     with open(ct_path) as file:
         while header_line := file.readline():
@@ -192,28 +189,7 @@ def parse_ct(ct_path: Path):
             title, length = _parse_ct_header_line(header_line)
             # Determine the sequence and base pairs.
             seq, pairs, offset = _parse_ct_structure(file, length)
-            # Make a section from the sequence.
-            section = Section(ref, seq.rt(), seq5=offset + 1, name=sect)
-            # Yield the title, section, and base pairs.
-            yield title, section, pairs
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################
+            # Make a region from the sequence.
+            region = Region(ref, seq.rt(), seq5=offset + 1, name=reg)
+            # Yield the title, region, and base pairs.
+            yield title, region, pairs

@@ -1,15 +1,15 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+build-backend = "mesonpy"
+requires = ["meson-python>=0.15.0"]
 
 [project]
 name = "seismic-rna"
 authors = [
     {name="Matty Allan"},
-    {name="Yves Martin"},
     {name="Scott Grote"},
-    {name="Alberic de Lajarte"},
     {name="Justin Aruda"},
+    {name="Yves Martin"},
+    {name="Alberic de Lajarte"},
 ]
 description = "Structure Ensemble Inference by Sequencing, Mutation Identification, and Clustering of RNA (SEISMIC-RNA)"
 readme = "README.md"
@@ -22,29 +22,18 @@ classifiers = [
 dependencies = [
     "brotli >=1.0",
     "click >=8.1",
-    "cutadapt >=4.4",
     "fastqsplitter >=1.2",
-    "matplotlib >=3.6",
-    "numpy >=1.23,<1.27",
-    "numba >=0.59",
-    "pandas >=1.5",
-    "plotly >=5.11",
+    "kaleido >=0.2.1",
+    "networkx >=3.4",
+    "numpy >=1.26,<1.27",
+    "numba >=0.60",
+    "pandas >=2.2",
+    "plotly >=5.23",
     "pyyaml >=6.0",
-    "scipy >=1.9",
+    "scipy >=1.13",
+    "jinja2 >=3.0"
 ]
 dynamic = ["version"]
-
-[tool.hatch.build.targets.sdist]
-exclude = [
-  "/.github",
-  "/docs",
-]
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/seismicrna"]
-
-[tool.hatch.version]
-path = "src/seismicrna/core/version.py"
 
 [project.scripts]
 seismic = "seismicrna.main:cli"
@@ -52,3 +41,7 @@ seismic = "seismicrna.main:cli"
 [project.urls]
 "Homepage" = "https://github.com/rouskinlab/seismic-rna"
 "Bug Tracker" = "https://github.com/rouskinlab/seismic-rna/issues"
+
+[tool.mesonpy]
+build-dir = "build"
+

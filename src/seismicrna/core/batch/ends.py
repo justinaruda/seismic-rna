@@ -3,7 +3,8 @@ from functools import cached_property
 import numpy as np
 
 from ..array import ensure_order, ensure_same_length, find_dims
-from ..seq import Section
+from ..logs import logger
+from ..seq import Region
 from ..types import fit_uint_type
 
 rng = np.random.default_rng()
@@ -243,7 +244,7 @@ def find_contiguous_reads(seg_end5s: np.ndarray, seg_end3s: np.ndarray):
 
 def simulate_segment_ends(uniq_end5s: np.ndarray,
                           uniq_end3s: np.ndarray,
-                          pends: np.ndarray,
+                          p_ends: np.ndarray,
                           num_reads: int,
                           read_length: int = 0,
                           p_rev: float = 0.5):
@@ -255,7 +256,7 @@ def simulate_segment_ends(uniq_end5s: np.ndarray,
         Unique read 5' end coordinates.
     uniq_end3s: np.ndarray
         Unique read 3' end coordinates.
-    pends: np.ndarray
+    p_ends: np.ndarray
         Probability of each set of unique end coordinates.
     num_reads: int
         Number of reads to simulate.
@@ -272,10 +273,37 @@ def simulate_segment_ends(uniq_end5s: np.ndarray,
         5' and 3' segment end coordinates of the simulated reads.
     """
     dims = find_dims([(NUM_READS,), (NUM_READS,), (NUM_READS,)],
-                     [uniq_end5s, uniq_end3s, pends],
-                     ["end5s", "end3s", "pends"])
+                     [uniq_end5s, uniq_end3s, p_ends],
+                     ["end5s", "end3s", "p_ends"])
+    if num_reads < 0:
+        raise ValueError(f"num_reads must be ≥ 0, but got {num_reads}")
+    elif num_reads == 0:
+        return np.array([], dtype=int), np.array([], dtype=int)
+    elif dims[NUM_READS] == 0:
+        raise ValueError(
+            f"Number of 5'/3' ends cannot be 0 if num_reads is {num_reads}"
+        )
+    # Drop pairs of 5'/3' ends where the 5' is greater than the 3'.
+    valid_ends = np.less_equal(uniq_end5s, uniq_end3s)
+    num_ends = np.count_nonzero(valid_ends)
+    if num_ends == 0:
+        raise ValueError("Got 0 pairs of 5'/3' ends for which 5' > 3'")
+    elif num_ends < valid_ends.size:
+        logger.warning(f"Got {valid_ends.size - num_ends} pairs of 5'/3' ends "
+                       f"for which 5' > 3'")
+        uniq_end5s = uniq_end5s[valid_ends]
+        uniq_end3s = uniq_end3s[valid_ends]
+        p_ends = p_ends[valid_ends]
+        total_p_ends = p_ends.sum()
+        if total_p_ends > 0:
+            p_ends = p_ends / total_p_ends
+        else:
+            # num_ends is not 0.
+            p_ends = np.full(num_ends, 1. / num_ends)
+    elif not np.isclose(p_ends.sum(), 1.):
+        raise ValueError(f"p_ends must sum to 1, but got {p_ends.sum()}")
     # Choose reads based on their probabilities.
-    indexes = rng.choice(dims[NUM_READS], num_reads, p=pends)
+    indexes = rng.choice(num_ends, num_reads, p=p_ends)
     read_end5s = uniq_end5s[indexes]
     read_end3s = uniq_end3s[indexes]
     if read_length < 0:
@@ -303,7 +331,7 @@ class EndCoords(object):
     """ Collection of 5' and 3' segment end coordinates. """
 
     def __init__(self, *,
-                 section: Section,
+                 region: Region,
                  seg_end5s: np.ndarray,
                  seg_end3s: np.ndarray,
                  sanitize: bool = True,
@@ -312,8 +340,8 @@ class EndCoords(object):
         # Validate and store the segment end coordinates.
         self._end5s, self._end3s = sanitize_segment_ends(seg_end5s,
                                                          seg_end3s,
-                                                         section.end5,
-                                                         section.end3,
+                                                         region.end5,
+                                                         region.end3,
                                                          sanitize)
 
     @cached_property
@@ -355,6 +383,11 @@ class EndCoords(object):
         """ 3' end of each read. """
         return find_read_end3s(self.seg_end3s)
 
+    @cached_property
+    def read_lengths(self):
+        """ Length of each read. """
+        return self.read_end3s - self.read_end5s + 1
+
     @property
     def pos_dtype(self):
         """ Data type for positions. """
@@ -376,24 +409,3 @@ class EndCoords(object):
     def num_discontiguous(self):
         """ Number of discontiguous reads. """
         return self.num_reads - self.num_contiguous
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

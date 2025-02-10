@@ -231,7 +231,12 @@ def ensure_order(array1: np.ndarray,
         Shared length of `array1` and `array2`.
     """
     length = ensure_same_length(array1, array2, what1, what2)
-    ineq_func, ineq_sign = (np.less, "<") if gt_eq else (np.greater, ">")
+    if gt_eq:
+        ineq_func = np.less
+        ineq_sign = "<"
+    else:
+        ineq_func = np.greater
+        ineq_sign = ">"
     if np.any(is_err := ineq_func(array1, array2)):
         index = pd.Index(np.arange(length)[is_err])
         errors = pd.DataFrame.from_dict(
@@ -270,14 +275,6 @@ def sanitize_values(values: Iterable[int],
                          f"{array[array > upper_limit]}")
     # Return the array as the smallest data type that will fit the data.
     return np.asarray(array, dtype=fit_uint_type(max_value))
-
-
-def stochastic_round(values: np.ndarray):
-    """ Round values to integers stochastically, so that the probability
-    of rounding up equals the mantissa. """
-    ints = np.floor(values)
-    mantissas = values - ints
-    return np.asarray(ints, dtype=int) + (rng.random(values.shape) < mantissas)
 
 
 def find_dims(dims: Sequence[Sequence[str | None]],
@@ -379,27 +376,4 @@ def triangular(n: int):
         The triangular number with index `n`; equivalently, the number
         of items in the equilateral triangle of side length `n`.
     """
-    return (n * n + n) // 2
-
-
-def find_true_dists(booleans: np.ndarray):
-    """ Find the distance to each True element in a boolean array. """
-    # Initialize the distances to the maximum (the length of booleans).
-    length = get_length(booleans, "booleans")
-    dists = np.full(length, length)
-    # Locate each True (nonzero) element of booleans.
-    trues = np.flatnonzero(booleans)
-    if trues.size > 0:
-        n2 = trues[0]
-        dists[:n2] = np.arange(n2, 0, -1)
-        for i in range(trues.size - 1):
-            a = trues[i]
-            b = trues[i + 1]
-            d = b - a
-            n2 = d // 2
-            n1 = b - n2
-            dists[a: n1] = np.arange(d - n2)
-            dists[n1: b] = np.arange(n2, 0, -1)
-        n1 = trues[-1]
-        dists[n1:] = np.arange(length - n1)
-    return dists
+    return (n * (n + 1)) // 2

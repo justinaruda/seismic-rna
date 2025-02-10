@@ -7,10 +7,10 @@ import pandas as pd
 
 from .names import BIT_VECTOR_NAME
 from ..core.array import get_length
-from ..core.batch import EndCoords, SectionMutsBatch
+from ..core.batch import EndCoords, RegionMutsBatch
 from ..core.rel import RelPattern
-from ..core.seq import Section
-from ..mask.data import MaskMutsDataset
+from ..core.seq import Region
+from ..mask.dataset import MaskMutsDataset
 
 
 class UniqReads(EndCoords):
@@ -22,12 +22,12 @@ class UniqReads(EndCoords):
         ((seg_end5s, seg_end3s),
          muts_per_pos,
          batch_to_uniq,
-         count_per_uniq) = get_uniq_reads(dataset.section.unmasked_int,
+         count_per_uniq) = get_uniq_reads(dataset.region.unmasked_int,
                                           dataset.pattern,
                                           dataset.iter_batches(),
                                           **kwargs)
         return cls(dataset.sample,
-                   dataset.section,
+                   dataset.region,
                    dataset.min_mut_gap,
                    dataset.quick_unbias,
                    dataset.quick_unbias_thresh,
@@ -46,7 +46,7 @@ class UniqReads(EndCoords):
 
     def __init__(self,
                  sample: str,
-                 section: Section,
+                 region: Region,
                  min_mut_gap: int,
                  quick_unbias: bool,
                  quick_unbias_thresh: float,
@@ -54,13 +54,13 @@ class UniqReads(EndCoords):
                  batch_to_uniq: list[pd.Series],
                  counts_per_uniq: np.ndarray,
                  **kwargs):
-        super().__init__(section=section, **kwargs)
+        super().__init__(region=region, **kwargs)
         self.sample = sample
-        self.section = section
+        self.region = region
         self.min_mut_gap = min_mut_gap
         self.quick_unbias = quick_unbias
         self.quick_unbias_thresh = quick_unbias_thresh
-        if len(muts_per_pos) != (npos := get_length(self.section.unmasked_int,
+        if len(muts_per_pos) != (npos := get_length(self.region.unmasked_int,
                                                     "pos_nums")):
             raise ValueError(f"Expected {npos} positions, "
                              f"but got {len(muts_per_pos)}")
@@ -71,27 +71,27 @@ class UniqReads(EndCoords):
     @property
     def ref(self):
         """ Reference name. """
-        return self.section.ref
+        return self.region.ref
 
     @cached_property
     def seg_end5s_zero(self):
-        """ 5' end of every segment (0-indexed in the section). """
-        return self.seg_end5s - self.section.end5
+        """ 5' end of every segment (0-indexed in the region). """
+        return self.seg_end5s - self.region.end5
 
     @cached_property
     def seg_end3s_zero(self):
-        """ 3' end of every segment (0-indexed in the section). """
-        return self.seg_end3s - self.section.end5
+        """ 3' end of every segment (0-indexed in the region). """
+        return self.seg_end3s - self.region.end5
 
     @cached_property
     def read_end5s_zero(self):
-        """ 5' end coordinates (0-indexed in the section). """
-        return self.read_end5s - self.section.end5
+        """ 5' end coordinates (0-indexed in the region). """
+        return self.read_end5s - self.region.end5
 
     @cached_property
     def read_end3s_zero(self):
-        """ 3' end coordinates (0-indexed in the section). """
-        return self.read_end3s - self.section.end5
+        """ 3' end coordinates (0-indexed in the region). """
+        return self.read_end3s - self.region.end5
 
     @cached_property
     def num_batches(self):
@@ -112,9 +112,9 @@ class UniqReads(EndCoords):
         """ Full boolean matrix of the mutations. """
         # Initialize an all-False matrix with one row for each unique
         # read and one column for each position.
-        muts = np.zeros((self.num_uniq, self.section.length), dtype=bool)
+        muts = np.zeros((self.num_uniq, self.region.length), dtype=bool)
         # For each position (j), set the mutated elements to True.
-        for j, indexes in zip(self.section.unmasked_zero,
+        for j, indexes in zip(self.region.unmasked_zero,
                               self.muts_per_pos,
                               strict=True):
             muts[indexes, j] = True
@@ -124,7 +124,7 @@ class UniqReads(EndCoords):
         """ Full boolean matrix of the covered positions. """
         # Initialize an all-False matrix with one row for each unique
         # read and one column for each position.
-        covs = np.zeros((self.num_uniq, self.section.length), dtype=bool)
+        covs = np.zeros((self.num_uniq, self.region.length), dtype=bool)
         # For each read (i), set the covered elements to True.
         for segment in range(self.num_segments):
             end5s = self.seg_end5s_zero[:, segment]
@@ -133,8 +133,9 @@ class UniqReads(EndCoords):
                 covs[read, end5: end3] = True
         return covs
 
-    def get_uniq_names(self):
-        """ Unique bit vectors as byte strings. """
+    @cached_property
+    def uniq_names(self):
+        """ Unique read names as byte strings. """
         # Get the full boolean matrices of the coverage and mutations of
         # the unique reads, cast the data from boolean to 8-bit integer
         # type, and merge them into one matrix via subtraction.
@@ -153,11 +154,21 @@ class UniqReads(EndCoords):
             names = list()
         return pd.Index(names, name=BIT_VECTOR_NAME)
 
+    @property
+    def num_obs(self):
+        """ Number of times each read was observed. """
+        return pd.Series(self.counts_per_uniq, self.uniq_names)
+
+    @cached_property
+    def log_obs(self):
+        """ Log number of times each read was observed. """
+        return np.log(self.num_obs)
+
     def __eq__(self, other):
         if not isinstance(other, UniqReads):
             return NotImplemented
         return (self.sample == other.sample
-                and self.section == other.section
+                and self.region == other.region
                 and self.min_mut_gap == other.min_mut_gap
                 and self.num_batches == other.num_batches
                 and np.array_equal(self.seg_end5s, other.seg_end5s)
@@ -174,7 +185,7 @@ class UniqReads(EndCoords):
                                    other.counts_per_uniq))
 
     def __str__(self):
-        return f"{type(self).__name__} of {self.sample} over {self.section}"
+        return f"{type(self).__name__} of {self.sample} over {self.region}"
 
 
 def _uniq_reads_to_ends_muts(uniq_reads: Iterable[tuple[tuple, tuple]],
@@ -220,7 +231,7 @@ def _count_uniq_reads(uniq_read_nums: Iterable[list]):
 
 def get_uniq_reads(pos_nums: Iterable[int],
                    pattern: RelPattern,
-                   batches: Iterable[SectionMutsBatch],
+                   batches: Iterable[RegionMutsBatch],
                    **kwargs):
     uniq_reads = defaultdict(list)
     read_nums_per_batch = list()
@@ -245,24 +256,3 @@ def get_uniq_reads(pos_nums: Iterable[int],
                                             uniq_reads.values())
     count_per_uniq = _count_uniq_reads(uniq_reads.values())
     return reads_ends, muts_per_pos, batch_to_uniq, count_per_uniq
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

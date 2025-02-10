@@ -1,6 +1,6 @@
 import gzip
 import os
-from logging import getLogger
+from itertools import chain
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -10,7 +10,8 @@ from numba import jit
 
 from .relate import get_param_dir_fields, load_param_dir
 from ..core import path
-from ..core.arg import (ADAPTER_SEQ_ILLUMINA_3P,
+from ..core.arg import (ILLUMINA_TRUSEQ_ADAPTER_R1,
+                        ILLUMINA_TRUSEQ_ADAPTER_R2,
                         arg_input_path,
                         opt_param_dir,
                         opt_profile_name,
@@ -23,9 +24,9 @@ from ..core.arg import (ADAPTER_SEQ_ILLUMINA_3P,
                         opt_num_reads,
                         opt_batch_size,
                         opt_max_procs,
-                        opt_parallel,
                         opt_force)
 from ..core.array import get_length
+from ..core.logs import logger
 from ..core.ngs import HI_QUAL, LO_QUAL
 from ..core.rel import (MATCH,
                         NOCOV,
@@ -39,13 +40,10 @@ from ..core.run import run_func
 from ..core.seq import DNA, BASEA, BASEC, BASEG, BASET, BASEN
 from ..core.task import as_list_of_tuples, dispatch
 from ..core.write import need_write, write_mode
-from ..pool.data import load_relate_dataset
-from ..relate.batch import QnamesBatch, RelateBatch
-from ..relate.data import QnamesDataset, RelateDataset
+from ..relate.batch import ReadNamesBatch, RelateBatch
+from ..relate.dataset import ReadNamesDataset, RelateMutsDataset, load_relate_dataset
 from ..relate.report import RelateReport
 from ..relate.sim import simulate_batches
-
-logger = getLogger(__name__)
 
 rng = np.random.default_rng()
 
@@ -68,6 +66,7 @@ def _complement(base: str):
 @jit()
 def _generate_fastq_read_qual(rels: np.ndarray,
                               refseq: str,
+                              adapter: str,
                               read_length: int,
                               revcomp: bool,
                               hi_qual: str,
@@ -124,9 +123,9 @@ def _generate_fastq_read_qual(rels: np.ndarray,
         ref_pos += ref_inc
     # Add the adapter to the end of the read.
     adapter_pos = 0
-    adapter_length = len(ADAPTER_SEQ_ILLUMINA_3P)
+    adapter_length = len(adapter)
     while read_pos < read_length and adapter_pos < adapter_length:
-        read[read_pos] = ADAPTER_SEQ_ILLUMINA_3P[adapter_pos]
+        read[read_pos] = adapter[adapter_pos]
         read_pos += 1
         adapter_pos += 1
     return "".join(read), "".join(qual)
@@ -135,6 +134,7 @@ def _generate_fastq_read_qual(rels: np.ndarray,
 def generate_fastq_record(name: str,
                           rels: np.ndarray,
                           refseq: str,
+                          adapter: str,
                           read_length: int,
                           reverse: bool = False,
                           hi_qual: str = HI_QUAL,
@@ -147,6 +147,7 @@ def generate_fastq_record(name: str,
         raise ValueError(f"rels contains {NOCOV}: {rels}")
     read, qual = _generate_fastq_read_qual(rels,
                                            refseq,
+                                           adapter,
                                            read_length,
                                            reverse,
                                            hi_qual,
@@ -169,7 +170,7 @@ def generate_fastq(top: Path,
                    refseq: DNA,
                    paired: bool,
                    read_length: int,
-                   batches: Iterable[tuple[RelateBatch, QnamesBatch]],
+                   batches: Iterable[tuple[RelateBatch, ReadNamesBatch]],
                    p_rev: float = 0.5,
                    fq_gzip: bool = True,
                    force: bool = False):
@@ -178,9 +179,11 @@ def generate_fastq(top: Path,
     if paired:
         segs = [path.DMFASTQ1_SEGS, path.DMFASTQ2_SEGS]
         exts = [path.FQ1_EXTS[0], path.FQ2_EXTS[0]]
+        adapters = [ILLUMINA_TRUSEQ_ADAPTER_R1, ILLUMINA_TRUSEQ_ADAPTER_R2]
     else:
         segs = [path.DMFASTQ_SEGS]
         exts = [path.FQ_EXTS[0]]
+        adapters = [ILLUMINA_TRUSEQ_ADAPTER_R1]
     if fq_gzip:
         exts = [(ext if ext.endswith(path.GZIP_EXT)
                  else f"{ext}{path.GZIP_EXT}")
@@ -215,15 +218,21 @@ def generate_fastq(top: Path,
                                                          nbatch.names,
                                                          reverse,
                                                          strict=True):
-                    for i, (fq, end5, end3) in enumerate(zip(fastq_files,
-                                                             end5s,
-                                                             end3s,
-                                                             strict=True)):
-                        record = generate_fastq_record(name,
-                                                       rels[end5 - 1: end3],
-                                                       seq_str[end5 - 1: end3],
-                                                       read_length,
-                                                       bool((rev + i) % 2))
+                    for i, (fq, end5, end3, adapter) in enumerate(zip(
+                            fastq_files,
+                            end5s,
+                            end3s,
+                            adapters,
+                            strict=True
+                    )):
+                        record = generate_fastq_record(
+                            name,
+                            rels[end5 - 1: end3],
+                            seq_str[end5 - 1: end3],
+                            adapter,
+                            read_length,
+                            bool((rev + i) % 2)
+                        )
                         fq.write(record.encode() if fq_gzip else record)
         finally:
             # Close the FASTQ files.
@@ -231,7 +240,7 @@ def generate_fastq(top: Path,
                 try:
                     fq.close()
                 except Exception as error:
-                    logger.warning(f"Failed to close file {fq}: {error}")
+                    logger.warning(error)
     else:
         # Warn that the FASTQ file(s) already exist(s).
         for fastq in fastq_paths:
@@ -247,15 +256,15 @@ def from_report(report_file: Path, *,
     """ Simulate a FASTQ file from a Relate report. """
     report = RelateReport.load(report_file)
     sample = report.get_field(SampleF)
-    rdata = RelateDataset.load(report_file)
-    ndata = QnamesDataset.load(report_file)
+    rdata = RelateMutsDataset(report_file)
+    ndata = ReadNamesDataset(report_file)
     sim_dir = _get_common_attr(rdata, ndata, "top")
-    section = rdata.section
+    region = rdata.region
     batches = zip(rdata.iter_batches(), ndata.iter_batches())
     return generate_fastq(sim_dir,
                           sample,
-                          section.ref,
-                          section.seq,
+                          region.ref,
+                          region.seq,
                           rdata.paired,
                           read_length,
                           batches,
@@ -275,9 +284,9 @@ def from_param_dir(param_dir: Path, *,
                    **kwargs):
     """ Simulate a FASTQ file from parameter files. """
     sim_dir, _, _ = get_param_dir_fields(param_dir)
-    section, pmut, u5s, u3s, pends, pclust = load_param_dir(param_dir, profile)
+    region, pmut, u5s, u3s, pends, pclust = load_param_dir(param_dir, profile)
     batches = simulate_batches(sample=sample,
-                               ref=section.ref,
+                               ref=region.ref,
                                pmut=pmut,
                                uniq_end5s=u5s,
                                uniq_end3s=u3s,
@@ -290,8 +299,8 @@ def from_param_dir(param_dir: Path, *,
                                **kwargs)
     return generate_fastq(sim_dir.joinpath(path.SIM_SAMPLES_DIR),
                           sample,
-                          section.ref,
-                          section.seq,
+                          region.ref,
+                          region.seq,
                           paired,
                           read_length,
                           batches,
@@ -300,10 +309,10 @@ def from_param_dir(param_dir: Path, *,
                           force=force)
 
 
-@run_func(logger.critical)
+@run_func(COMMAND)
 def run(*,
-        input_path: tuple[str, ...],
-        param_dir: tuple[str, ...],
+        input_path: Iterable[str | Path],
+        param_dir: Iterable[str | Path],
         profile_name: str,
         sample: str,
         paired_end: bool,
@@ -313,7 +322,6 @@ def run(*,
         fq_gzip: bool,
         num_reads: int,
         max_procs: int,
-        parallel: bool,
         force: bool):
     report_files = as_list_of_tuples(path.find_files_chain(
         input_path,
@@ -322,30 +330,28 @@ def run(*,
     param_dirs = as_list_of_tuples(map(Path, param_dir))
     fastqs = list()
     if report_files:
-        fastqs.extend(dispatch(from_report,
-                               max_procs=max_procs,
-                               parallel=parallel,
-                               pass_n_procs=False,
-                               args=report_files,
-                               kwargs=dict(read_length=read_length,
-                                           p_rev=reverse_fraction,
-                                           fq_gzip=fq_gzip,
-                                           force=force)))
+        fastqs.extend(chain(*dispatch(from_report,
+                                      max_procs=max_procs,
+                                      pass_n_procs=False,
+                                      args=report_files,
+                                      kwargs=dict(read_length=read_length,
+                                                  p_rev=reverse_fraction,
+                                                  fq_gzip=fq_gzip,
+                                                  force=force))))
     if param_dirs:
-        fastqs.extend(dispatch(from_param_dir,
-                               max_procs=max_procs,
-                               parallel=parallel,
-                               pass_n_procs=False,
-                               args=param_dirs,
-                               kwargs=dict(sample=sample,
-                                           profile=profile_name,
-                                           paired=paired_end,
-                                           read_length=read_length,
-                                           p_rev=reverse_fraction,
-                                           min_mut_gap=min_mut_gap,
-                                           fq_gzip=fq_gzip,
-                                           num_reads=num_reads,
-                                           force=force)))
+        fastqs.extend(chain(*dispatch(from_param_dir,
+                                      max_procs=max_procs,
+                                      pass_n_procs=False,
+                                      args=param_dirs,
+                                      kwargs=dict(sample=sample,
+                                                  profile=profile_name,
+                                                  paired=paired_end,
+                                                  read_length=read_length,
+                                                  p_rev=reverse_fraction,
+                                                  min_mut_gap=min_mut_gap,
+                                                  fq_gzip=fq_gzip,
+                                                  num_reads=num_reads,
+                                                  force=force))))
     if not fastqs:
         logger.warning("No FASTQ files were generated")
     return fastqs
@@ -362,7 +368,6 @@ params = [arg_input_path,
           opt_fq_gzip,
           opt_num_reads,
           opt_max_procs,
-          opt_parallel,
           opt_force]
 
 

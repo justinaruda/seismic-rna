@@ -1,0 +1,139 @@
+from abc import ABC
+from functools import cached_property
+
+from .batch import RelateBatch
+from .io import ReadNamesBatchIO, RelateBatchIO
+from .report import RelateReport, PoolReport
+from ..core.dataset import (Dataset,
+                            LoadedDataset,
+                            MergedRegionDataset,
+                            MutsDataset,
+                            LoadFunction,
+                            TallDataset)
+from ..core.header import NO_K, NO_KS
+from ..core.io import RefseqIO
+from ..core.report import RefseqChecksumF
+from ..core.seq import FULL_NAME, Region
+
+
+class AverageDataset(Dataset, ABC):
+    """ Dataset of population average data. """
+
+    @property
+    def ks(self):
+        return NO_KS
+
+    @property
+    def best_k(self):
+        return NO_K
+
+
+class RelateDataset(AverageDataset, ABC):
+    """ Dataset of relationships. """
+
+
+class RelateMutsDataset(RelateDataset, LoadedDataset, MutsDataset):
+    """ Dataset of mutations from the Relate step. """
+
+    @classmethod
+    def get_batch_type(cls):
+        return RelateBatchIO
+
+    @classmethod
+    def get_report_type(cls):
+        return RelateReport
+
+    @cached_property
+    def refseq(self):
+        return RefseqIO.load(
+            RefseqIO.build_path(top=self.top,
+                                sample=self.sample,
+                                ref=self.ref),
+            checksum=self.report.get_field(RefseqChecksumF)
+        ).refseq
+
+    @cached_property
+    def region(self):
+        return Region(ref=self.ref,
+                      seq=self.refseq,
+                      end5=1,
+                      end3=len(self.refseq),
+                      name=FULL_NAME)
+
+    @property
+    def pattern(self):
+        return None
+
+    @cached_property
+    def paired(self):
+        """ Whether the reads are paired-end. """
+        if self.num_batches == 0:
+            return False
+        return self.get_batch(0).num_segments == 2
+
+    def get_batch(self, batch: int):
+        relate_batch = super().get_batch(batch)
+        return RelateBatch(batch=relate_batch.batch,
+                           seg_end5s=relate_batch.seg_end5s,
+                           seg_end3s=relate_batch.seg_end3s,
+                           muts=relate_batch.muts,
+                           region=self.region,
+                           sanitize=False)
+
+
+class PoolDataset(RelateDataset,
+                  TallDataset,
+                  MutsDataset,
+                  MergedRegionDataset):
+    """ Load pooled batches of relationships. """
+
+    @classmethod
+    def get_report_type(cls):
+        return PoolReport
+
+    @classmethod
+    def get_dataset_load_func(cls):
+        return load_relate_dataset
+
+    @cached_property
+    def region(self):
+        return self._get_common_attr("region")
+
+
+class NamesDataset(AverageDataset, ABC):
+
+    @classmethod
+    def kind(cls):
+        return "names"
+
+
+class ReadNamesDataset(NamesDataset, LoadedDataset):
+    """ Dataset of read names from the Relate step. """
+
+    @classmethod
+    def get_batch_type(cls):
+        return ReadNamesBatchIO
+
+    @classmethod
+    def get_report_type(cls):
+        return RelateReport
+
+    @property
+    def pattern(self):
+        return None
+
+
+class PoolReadNamesDataset(NamesDataset, TallDataset):
+    """ Pooled Dataset of read names. """
+
+    @classmethod
+    def get_report_type(cls):
+        return PoolReport
+
+    @classmethod
+    def get_dataset_load_func(cls):
+        return load_read_names_dataset
+
+
+load_relate_dataset = LoadFunction(RelateMutsDataset, PoolDataset)
+load_read_names_dataset = LoadFunction(ReadNamesDataset, PoolReadNamesDataset)

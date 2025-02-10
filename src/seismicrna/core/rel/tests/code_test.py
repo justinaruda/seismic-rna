@@ -1,11 +1,3 @@
-"""
-
-Tests for the Relate Core Module
-
-========================================================================
-
-"""
-
 import unittest as ut
 
 import numpy as np
@@ -17,10 +9,7 @@ from ..code import (IRREC,
                     DELET,
                     INS_5,
                     INS_3,
-                    INS_8,
-                    MINS5,
-                    MINS3,
-                    ANY_8,
+                    INSRT,
                     SUB_A,
                     SUB_C,
                     SUB_G,
@@ -49,10 +38,7 @@ class TestConstants(ut.TestCase):
     def test_derived_codes(self):
         """ Test the derived relation codes. """
         self.assertEqual(IRREC, 0)
-        self.assertEqual(MINS5, 5)
-        self.assertEqual(MINS3, 9)
-        self.assertEqual(INS_8, 12)
-        self.assertEqual(ANY_8, 13)
+        self.assertEqual(INSRT, 12)
         self.assertEqual(INDEL, 14)
         self.assertEqual(SUB_N, 240)
         self.assertEqual(ANY_N, 241)
@@ -61,24 +47,3 @@ class TestConstants(ut.TestCase):
         self.assertEqual(ANY_D, ANY_N - SUB_C)
         self.assertEqual(ANY_H, ANY_N - SUB_G)
         self.assertEqual(ANY_V, ANY_N - SUB_T)
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

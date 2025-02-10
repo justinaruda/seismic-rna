@@ -1,8 +1,9 @@
 from functools import cached_property
 
+import numpy as np
 import pandas as pd
 
-from ..core.batch import PartialMutsBatch, PartialReadBatch, SectionMutsBatch
+from ..mask.batch import PartialRegionMutsBatch, PartialReadBatch
 
 
 class ClusterReadBatch(PartialReadBatch):
@@ -20,31 +21,11 @@ class ClusterReadBatch(PartialReadBatch):
         return self.resps.index.values
 
 
-class ClusterMutsBatch(ClusterReadBatch, PartialMutsBatch, SectionMutsBatch):
+class ClusterMutsBatch(ClusterReadBatch, PartialRegionMutsBatch):
 
     @property
     def read_weights(self):
-        self.resps.loc[self.masked_reads_bool] = 0
-        self.resps.loc[:, self.resps.columns[0]] = 1
-        return self.resps
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################
+        read_weights = self.resps
+        if self.masked_reads_bool.any():
+            read_weights[self.masked_reads_bool] = 0
+        return read_weights

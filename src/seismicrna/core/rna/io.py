@@ -1,26 +1,24 @@
 from functools import partial
-from logging import getLogger
 from pathlib import Path
 from typing import Callable, Iterable
 
 from .ct import parse_ct
 from .db import parse_db
 from .struct import RNAStructure
+from ..logs import logger
 from ..path import CT_EXT, DB_EXT
-from ..seq import Section
+from ..seq import Region
 from ..write import need_write, write_mode
-
-logger = getLogger(__name__)
 
 
 def _from_file(file: Path, parser: Callable, *args, **kwargs):
     titles: set[str] = set()
-    for title, section, pairs in parser(file, *args, **kwargs):
+    for title, region, pairs in parser(file, *args, **kwargs):
         if title in titles:
             logger.warning(f"Title {repr(title)} is repeated in {file}")
         else:
             titles.add(title)
-        yield RNAStructure(title=title, section=section, pairs=pairs)
+        yield RNAStructure(title=title, region=region, pairs=pairs)
 
 
 def from_ct(ct_path: Path):
@@ -59,18 +57,18 @@ def from_db(db_path: Path, seq5: int = 1):
     yield from _from_file(db_path, parse_db, seq5=seq5)
 
 
-def find_ct_section(ct_path: Path) -> Section:
-    """ Section shared among all structures in a CT file. """
+def find_ct_region(ct_path: Path) -> Region:
+    """ Region shared among all structures in a CT file. """
     structures = iter(from_ct(ct_path))
     try:
         structure = next(structures)
     except StopIteration:
         raise ValueError(f"No structures in {ct_path}")
-    section = structure.section
+    region = structure.region
     for structure in structures:
-        if structure.section != section:
-            raise ValueError(f"Got > 1 unique section in {ct_path}")
-    return section
+        if structure.region != region:
+            raise ValueError(f"Got > 1 unique region in {ct_path}")
+    return region
 
 
 def to_ct(structures: Iterable[RNAStructure],
@@ -95,7 +93,7 @@ def to_ct(structures: Iterable[RNAStructure],
         # Write the structures to the file.
         with open(ct_path, write_mode(force)) as f:
             f.write(text)
-        logger.info(f"Wrote {ct_path}")
+        logger.routine(f"Wrote {ct_path}")
 
 
 def to_db(structures: Iterable[RNAStructure],
@@ -121,7 +119,7 @@ def to_db(structures: Iterable[RNAStructure],
         # Write the structures to the file.
         with open(db_path, write_mode(force)) as f:
             f.write(text)
-        logger.info(f"Wrote {db_path}")
+        logger.routine(f"Wrote {db_path}")
 
 
 def renumber_ct(ct_in: Path, ct_out: Path, seq5: int, force: bool = False):
@@ -164,24 +162,3 @@ def db_to_ct(db_path: Path,
         ct_path = db_path.with_suffix(CT_EXT)
     to_ct(from_db(db_path), ct_path, force)
     return ct_path
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

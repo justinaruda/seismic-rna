@@ -1,6 +1,6 @@
 import os
-from logging import getLogger
 from pathlib import Path
+from typing import Iterable
 
 import numpy as np
 import pandas as pd
@@ -10,15 +10,12 @@ from ..core import path
 from ..core.arg import (opt_ct_file,
                         opt_clust_conc,
                         opt_force,
-                        opt_parallel,
                         opt_max_procs)
-from ..core.header import ClustHeader, index_order_clusts
+from ..core.header import ClustHeader
 from ..core.rna import from_ct
 from ..core.run import run_func
 from ..core.task import as_list_of_tuples, dispatch
 from ..core.write import need_write
-
-logger = getLogger(__name__)
 
 COMMAND = __name__.split(os.path.extsep)[-1]
 
@@ -58,7 +55,7 @@ def sim_pclust(num_clusters: int,
         if sort:
             props = np.sort(props)[::-1]
     return pd.Series(props,
-                     index=index_order_clusts(num_clusters),
+                     index=ClustHeader(ks=[num_clusters]).index,
                      name=PROPORTION)
 
 
@@ -81,17 +78,15 @@ def load_pclust(pclust_file: Path):
     )[PROPORTION]
 
 
-@run_func(logger.critical)
+@run_func(COMMAND)
 def run(*,
-        ct_file: tuple[str, ...],
+        ct_file: Iterable[str | Path],
         clust_conc: float,
         force: bool,
-        parallel: bool,
         max_procs: int):
     """ Simulate the rate of each kind of mutation at each position. """
     return dispatch(sim_pclust_ct,
                     max_procs=max_procs,
-                    parallel=parallel,
                     pass_n_procs=False,
                     args=as_list_of_tuples(map(Path, ct_file)),
                     kwargs=dict(concentration=(clust_conc if clust_conc
@@ -103,7 +98,6 @@ params = [
     opt_ct_file,
     opt_clust_conc,
     opt_force,
-    opt_parallel,
     opt_max_procs
 ]
 

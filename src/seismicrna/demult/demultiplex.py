@@ -7,7 +7,7 @@ from pathlib import Path
 import fastqsplitter
 import pandas as pd
 
-from ..align.fqops import FastqUnit
+from ..align.fqunit import FastqUnit
 from ..core.arg import (opt_barcode_end,
                         opt_barcode_start,
                         opt_parallel_demultiplexing,
@@ -16,7 +16,7 @@ from ..core.arg import (opt_barcode_end,
                         opt_index_tolerence,
                         opt_demulti_overwrite,
                         arg_fasta,
-                        opt_mask_sections_file,
+                        opt_mask_regions_file,
                         opt_fastqx,
                         opt_refs_meta,
                         opt_tmp_pfx,
@@ -29,7 +29,7 @@ params = [
     # Inputs
     arg_fasta,
     opt_fastqx,
-    opt_mask_sections_file,
+    opt_mask_regions_file,
     opt_barcode_start,
     opt_barcode_end,
 
@@ -459,7 +459,7 @@ def make_dict_from_fasta(fasta_path) -> dict:
 
 
 """
-input csv, mask_sections_file that represents each sequence to be dumultiplexed with many different coloumns 
+input csv, mask_regions_file that represents each sequence to be dumultiplexed with many different coloumns 
 
 workspace directory that demultiplexing is being done in 
 
@@ -1030,7 +1030,7 @@ def create_report(sequence_objects: dict, fq1: str, fq2: str, working_directory:
 
 """
 split is default to 10. disregarding extremes, the higher the split the lighter the memeory load
-mask_sections_file csv 
+mask_regions_file csv 
     each construct must have a secondary signiture start index and len in order to process, 
     barcode given in main arguements 
 """
@@ -1145,24 +1145,3 @@ def demultiplex_run(refs_file_csv, demulti_workspace, report_folder, fq_unit: Fa
     create_report(sequence_objects, mixed_fastq1, mixed_fastq2, report_folder, unioned_sets_dictionary,sample_name)
 
     return (), (), (report_folder + sample_name + "/",)
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

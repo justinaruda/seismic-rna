@@ -1,14 +1,19 @@
 ########################################################################
-How to Research RNA Structures with SEISMIC-RNA
+SEISMIC-RNA
 ########################################################################
 
+Structure Ensemble Inference by Sequencing, Mutation Identification, and
+Clustering of RNA
+
+
 .. toctree::
-    :maxdepth: 2
+    :maxdepth: 1
 
     about/index
-    install
-    steps/index
-    howto/index
+    works/index
+    install/index
+    tutorials/index
+    manual/index
     cli
     api/seismicrna
     formats/index

@@ -1,10 +1,10 @@
-from logging import getLogger
 from pathlib import Path
+from typing import Iterable
 
 from click import command
 
 from .demultiplex import demultiplex_run
-from ..align.fqops import FastqUnit
+from ..align.fqunit import FastqUnit
 from ..core.arg import (CMD_DEMULT,
                         opt_barcode_end,
                         opt_barcode_start,
@@ -23,18 +23,16 @@ from ..core.arg import (CMD_DEMULT,
                         extra_defaults)
 from ..core.run import run_func
 
-logger = getLogger(__name__)
 
-
-@run_func(logger.critical,
+@run_func(CMD_DEMULT,
           with_tmp=True,
           pass_keep_tmp=True,
           extra_defaults=extra_defaults)
-def run_dm(fasta: str,
+def run_dm(fasta: str | Path,
            refs_meta: str,
-           out_dir: str,
+           out_dir: str | Path,
            tmp_dir: Path,
-           fastqx: tuple[str, ...],
+           fastqx: Iterable[str | Path],
            phred_enc: int,
            barcode_start: int,
            barcode_end: int,
@@ -45,7 +43,7 @@ def run_dm(fasta: str,
            demulti_overwrite: bool,
            keep_tmp: bool):
     """ Split multiplexed FASTQ files by their barcodes. """
-    fq_units = list(FastqUnit.from_paths(fastqx=list(map(Path, fastqx)),
+    fq_units = list(FastqUnit.from_paths(fastqx=fastqx,
                                          phred_enc=phred_enc))
     return [demultiplex_run(refs_file_csv=refs_meta,
                             overwrite=demulti_overwrite,
@@ -89,24 +87,3 @@ params = [
 def cli(*args, **kwargs):
     """ Split multiplexed FASTQ files by their barcodes. """
     return run_dm(*args, **kwargs)
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

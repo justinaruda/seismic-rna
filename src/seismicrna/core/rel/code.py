@@ -24,29 +24,5 @@ ANY_B = REL_TYPE(SUB_B | MATCH)
 ANY_D = REL_TYPE(SUB_D | MATCH)
 ANY_H = REL_TYPE(SUB_H | MATCH)
 ANY_V = REL_TYPE(SUB_V | MATCH)
-INS_8 = REL_TYPE(INS_5 | INS_3)
-INDEL = REL_TYPE(DELET | INS_8)
-MINS5 = REL_TYPE(INS_5 | MATCH)
-MINS3 = REL_TYPE(INS_3 | MATCH)
-ANY_8 = REL_TYPE(INS_8 | MATCH)
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################
+INSRT = REL_TYPE(INS_5 | INS_3)
+INDEL = REL_TYPE(DELET | INSRT)

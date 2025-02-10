@@ -64,6 +64,16 @@ def normalize(mus: np.ndarray | pd.Series | pd.DataFrame, quantile: float):
     return mus / calc_quantile(mus, quantile) if quantile > 0. else mus
 
 
+def normalize_max(mus: np.ndarray | pd.Series | pd.DataFrame):
+    """ Normalize the mutation rates so their maximum becomes 1. """
+    return normalize(mus, 1.0)
+
+
+def normalize_med(mus: np.ndarray | pd.Series | pd.DataFrame):
+    """ Normalize the mutation rates so their median becomes 1. """
+    return normalize(mus, 0.5)
+
+
 @auto_reframe
 def winsorize(mus: np.ndarray | pd.Series | pd.DataFrame, quantile: float):
     """ Normalize and winsorize the mutation rates to a quantile so that
@@ -157,24 +167,3 @@ def calc_ranks(mus: np.ndarray | pd.Series | pd.DataFrame):
         # This error should be impossible, but checking just in case.
         raise ValueError(f"Ranks cannot be negative, but got {ranks}")
     return ranks
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

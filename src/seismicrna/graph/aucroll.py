@@ -1,20 +1,18 @@
 import os
 from functools import cached_property
-from logging import getLogger
 
 import pandas as pd
 from click import command
 from plotly import graph_objects as go
 
-from .base import PosGraphWriter, PosGraphRunner
+from .table import TableWriter, PositionTableRunner
 from .onestruct import (StructOneTableGraph,
                         StructOneTableRunner,
                         StructOneTableWriter)
 from .roc import PROFILE_NAME, rename_columns
 from .roll import RollingGraph, RollingRunner
 from .trace import iter_rolling_auc_traces
-
-logger = getLogger(__name__)
+from ..core.run import log_command
 
 COMMAND = __name__.split(os.path.extsep)[-1]
 
@@ -63,41 +61,25 @@ class RollingAUCGraph(StructOneTableGraph, RollingGraph):
         fig.update_yaxes(gridcolor="#d0d0d0")
 
 
-class RollingAUCWriter(StructOneTableWriter, PosGraphWriter):
+class RollingAUCWriter(StructOneTableWriter, TableWriter):
 
     def get_graph(self, rels_group: str, **kwargs):
         return RollingAUCGraph(table=self.table, rel=rels_group, **kwargs)
 
 
-class RollingAUCRunner(RollingRunner, StructOneTableRunner, PosGraphRunner):
+class RollingAUCRunner(RollingRunner, StructOneTableRunner, PositionTableRunner):
 
     @classmethod
     def get_writer_type(cls):
         return RollingAUCWriter
+
+    @classmethod
+    @log_command(COMMAND)
+    def run(cls, *args, **kwargs):
+        return super().run(*args, **kwargs)
 
 
 @command(COMMAND, params=RollingAUCRunner.params())
 def cli(*args, **kwargs):
     """ Rolling AUC-ROC comparing a profile to a structure. """
     return RollingAUCRunner.run(*args, **kwargs)
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

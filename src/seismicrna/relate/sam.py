@@ -1,9 +1,9 @@
 from functools import cached_property
-from logging import getLogger
 from pathlib import Path
 
 from ..core import path
 from ..core.extern import cmds_to_pipe
+from ..core.logs import logger
 from ..core.ngs import (SAM_DELIM,
                         FLAG_PAIRED,
                         FLAG_PROPER,
@@ -19,10 +19,8 @@ from ..core.ngs import (SAM_DELIM,
                         view_xam_cmd,
                         xam_paired)
 
-logger = getLogger(__name__)
 
-
-def line_attrs(line: str):
+def line_attrs(line: str) -> tuple[str, bool, bool]:
     """ Read attributes from a line in a SAM file. """
     name, flag_str, _ = line.split(SAM_DELIM, 2)
     flag = int(flag_str)
@@ -32,6 +30,7 @@ def line_attrs(line: str):
 
 
 def _iter_batch_indexes(sam_file: Path, batch_size: int, paired: bool):
+    logger.routine(f"Began calculating batch indexes in {sam_file}")
     if batch_size <= 0:
         raise ValueError(f"batch_size must be a positive integer, "
                          f"but got {batch_size}")
@@ -57,41 +56,43 @@ def _iter_batch_indexes(sam_file: Path, batch_size: int, paired: bool):
             # Files of paired-end reads require an extra step.
             if paired and line:
                 # Check if the current and next lines are mates.
-                name, paired, proper = line_attrs(line)
-                (next_name,
-                 next_paired,
-                 next_proper) = line_attrs(f.readline())
-                if not (paired and next_paired):
-                    raise ValueError(f"{sam_file} does not have only "
-                                     "paired-end reads")
-                names_match = name == next_name
-                if names_match and proper != next_proper:
-                    raise ValueError(
-                        f"Read {repr(name)} has only one properly paired "
-                        f"mate, which indicates a bug"
-                    )
-                if names_match and proper:
-                    # If the read names match, then the lines are
-                    # mates and should be in the same batch. Advance
-                    # the variable position to point to the end of
-                    # the next read.
-                    position = f.tell()
-                else:
-                    # Otherwise, they are not mates. Backtrack to
-                    # the end of the current read, to which the
-                    # variable position points.
-                    f.seek(position)
+                read_name, read_paired, read_proper = line_attrs(line)
+                if line := f.readline():
+                    # The next line exists.
+                    next_name, next_paired, next_proper = line_attrs(line)
+                    if not (read_paired and next_paired):
+                        raise ValueError(f"{sam_file} does not have only "
+                                         "paired-end reads")
+                    names_match = read_name == next_name
+                    if names_match and read_proper != next_proper:
+                        raise ValueError(
+                            f"Read {repr(read_name)} has only one properly "
+                            f"paired mate, which indicates a bug"
+                        )
+                    if names_match and read_proper:
+                        # If the read names match, then the lines are
+                        # mates and should be in the same batch. Advance
+                        # the variable position to point to the end of
+                        # the next read.
+                        position = f.tell()
+                    else:
+                        # Otherwise, they are not mates. Backtrack to
+                        # the end of the current read, to which the
+                        # variable position points.
+                        f.seek(position)
             # Yield the number and positions of the batch.
-            logger.debug(
+            logger.detail(
                 f"Batch {batch} of {sam_file}: {batch_start} - {position}"
             )
             yield batch, batch_start, position
             # Increment the batch number.
             batch += 1
+    logger.routine(f"Ended calculating batch indexes in {sam_file}")
 
 
 def _iter_records_single(sam_file: Path, start: int, stop: int):
     """ Yield every single-end read in the file. """
+    logger.routine(f"Began iterating through single-end records in {sam_file}")
     with open(sam_file) as f:
         f.seek(start)
         while f.tell() < stop:
@@ -101,11 +102,13 @@ def _iter_records_single(sam_file: Path, start: int, stop: int):
                 raise ValueError(
                     f"Read {repr(name)} in {sam_file} is not single-end"
                 )
-            yield line, ""
+            yield name, line, ""
+    logger.routine(f"Ended iterating through single-end records in {sam_file}")
 
 
 def _iter_records_paired(sam_file: Path, start: int, stop: int):
     """ Yield every paired-end read in the file. """
+    logger.routine(f"Began iterating through paired-end records in {sam_file}")
     with open(sam_file) as f:
         f.seek(start)
         prev_line = ""
@@ -128,12 +131,12 @@ def _iter_records_paired(sam_file: Path, start: int, stop: int):
                     if proper:
                         # The current read is properly paired with its
                         # mate: yield them together.
-                        yield prev_line, line
+                        yield name, prev_line, line
                     else:
                         # The current read is not properly paired with
                         # its mate: yield them separately.
-                        yield prev_line, prev_line
-                        yield line, line
+                        yield name, prev_line, prev_line
+                        yield name, line, line
                     # Reset the attributes of the previous read.
                     prev_line = ""
                     prev_name = ""
@@ -146,7 +149,7 @@ def _iter_records_paired(sam_file: Path, start: int, stop: int):
                                          f"in {sam_file} is properly paired "
                                          "but has no mate, "
                                          "which indicates a bug")
-                    yield prev_line, prev_line
+                    yield prev_name, prev_line, prev_line
                     # Save the current read so that if its mate is the
                     # next read, it can be returned as a pair.
                     prev_line = line
@@ -159,12 +162,13 @@ def _iter_records_paired(sam_file: Path, start: int, stop: int):
                 prev_name = name
                 prev_proper = proper
         if prev_line:
+            # In case the last read has not yet been yielded, do so.
             if prev_proper:
                 raise ValueError(f"Read {repr(prev_name)} in {sam_file} is "
                                  "properly paired but has no mate, which "
                                  "indicates a bug")
-            # In case the last read has not yet been yielded, do so.
-            yield prev_line, prev_line
+            yield prev_name, prev_line, prev_line
+    logger.routine(f"Ended iterating through paired-end records in {sam_file}")
 
 
 def tmp_xam_cmd(xam_in: Path, xam_out: Path, paired: bool, n_procs: int = 1):
@@ -248,7 +252,7 @@ class XamViewer(object):
         return path.build(*path.XAM_STAGE_SEGS,
                           top=self.tmp_dir,
                           sample=self.sample,
-                          cmd=path.CMD_REL_DIR,
+                          cmd=path.RELATE_STEP,
                           stage=path.STAGE_REL_SAMS,
                           ref=self.ref,
                           ext=path.SAM_EXT)
@@ -272,12 +276,12 @@ class XamViewer(object):
         files, both mates are present. In the extreme case that only one
         mate is present for every paired-end record, there can be up to
         `2 * records_per_batch` records in a batch. """
-        logger.info(f"Began computing batch indexes for {self}")
+        logger.routine(f"Began computing batch indexes for {self}")
         self.create_tmp_sam()
         yield from _iter_batch_indexes(self.tmp_sam_path,
                                        self.batch_size,
                                        self.paired)
-        logger.info(f"Ended computing batch indexes for {self}")
+        logger.routine(f"Ended computing batch indexes for {self}")
 
     @cached_property
     def indexes(self):
@@ -286,34 +290,13 @@ class XamViewer(object):
 
     def iter_records(self, batch: int):
         """ Iterate through the records of the batch. """
-        logger.info(f"Began iterating records for {self} batch {batch}")
+        logger.routine(f"Began iterating records for {self} batch {batch}")
         start, stop = self.indexes[batch]
         if self.paired:
             yield from _iter_records_paired(self.tmp_sam_path, start, stop)
         else:
             yield from _iter_records_single(self.tmp_sam_path, start, stop)
-        logger.info(f"Ended iterating records for {self} batch {batch}")
+        logger.routine(f"Ended iterating records for {self} batch {batch}")
 
     def __str__(self):
         return f"alignment map {self.xam_input}"
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

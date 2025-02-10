@@ -1,9 +1,9 @@
-from logging import getLogger
 from pathlib import Path
+from typing import Iterable
 
 from click import command
 
-from .fqops import FastqUnit
+from .fqunit import FastqUnit
 from .write import align_samples
 from ..core.arg import (CMD_ALIGN,
                         arg_fasta,
@@ -18,24 +18,22 @@ from ..core.arg import (CMD_ALIGN,
                         opt_tmp_pfx,
                         opt_force,
                         opt_keep_tmp,
-                        opt_parallel,
                         opt_max_procs,
-                        opt_fastqc,
-                        opt_qc_extract,
-                        opt_cutadapt,
-                        opt_cut_a1,
-                        opt_cut_g1,
-                        opt_cut_a2,
-                        opt_cut_g2,
-                        opt_cut_o,
-                        opt_cut_e,
-                        opt_cut_q1,
-                        opt_cut_q2,
-                        opt_cut_m,
-                        opt_cut_indels,
-                        opt_cut_discard_trimmed,
-                        opt_cut_discard_untrimmed,
-                        opt_cut_nextseq,
+                        opt_fastp,
+                        opt_fastp_5,
+                        opt_fastp_3,
+                        opt_fastp_w,
+                        opt_fastp_m,
+                        opt_fastp_poly_g,
+                        opt_fastp_poly_g_min_len,
+                        opt_fastp_poly_x,
+                        opt_fastp_poly_x_min_len,
+                        opt_fastp_adapter_trimming,
+                        opt_fastp_adapter_1,
+                        opt_fastp_adapter_2,
+                        opt_fastp_adapter_fasta,
+                        opt_fastp_detect_adapter_for_pe,
+                        opt_fastp_min_length,
                         opt_bt2_local,
                         opt_bt2_discordant,
                         opt_bt2_mixed,
@@ -56,51 +54,51 @@ from ..core.arg import (CMD_ALIGN,
                         opt_min_mapq,
                         opt_min_reads,
                         opt_sep_strands,
-                        opt_minus_label,
-                        opt_f1r2_plus)
+                        opt_rev_label,
+                        opt_f1r2_fwd,
+                        optional_path,
+                        extra_defaults)
 from ..core.extern import (BOWTIE2_CMD,
                            BOWTIE2_BUILD_CMD,
-                           CUTADAPT_CMD,
-                           FASTQC_CMD,
+                           FASTP_CMD,
                            SAMTOOLS_CMD,
                            require_dependency)
 from ..core.run import run_func
 
-logger = getLogger(__name__)
 
-
-@run_func(logger.critical, with_tmp=True, pass_keep_tmp=True)
-def run(fasta: str, *,
+@run_func(CMD_ALIGN,
+          with_tmp=True,
+          pass_keep_tmp=True,
+          extra_defaults=extra_defaults)
+def run(fasta: str | Path, *,
         # Inputs
-        fastqz: tuple[str, ...],
-        fastqy: tuple[str, ...],
-        fastqx: tuple[str, ...],
-        dmfastqz: tuple[str, ...],
-        dmfastqy: tuple[str, ...],
-        dmfastqx: tuple[str, ...],
+        fastqz: Iterable[str | Path],
+        fastqy: Iterable[str | Path],
+        fastqx: Iterable[str | Path],
+        dmfastqz: Iterable[str | Path],
+        dmfastqy: Iterable[str | Path],
+        dmfastqx: Iterable[str | Path],
         phred_enc: int,
         # Outputs
-        out_dir: str,
+        out_dir: str | Path,
         tmp_dir: Path,
         keep_tmp: bool,
-        # FASTQC
-        fastqc: bool,
-        qc_extract: bool,
-        # Cutadapt
-        cut: bool,
-        cut_q1: int,
-        cut_q2: int,
-        cut_g1: tuple[str, ...],
-        cut_a1: tuple[str, ...],
-        cut_g2: tuple[str, ...],
-        cut_a2: tuple[str, ...],
-        cut_o: int,
-        cut_e: float,
-        cut_indels: bool,
-        cut_nextseq: bool,
-        cut_discard_trimmed: bool,
-        cut_discard_untrimmed: bool,
-        cut_m: int,
+        # Fastp
+        fastp: bool,
+        fastp_5: bool,
+        fastp_3: bool,
+        fastp_w: int,
+        fastp_m: int,
+        fastp_poly_g: str,
+        fastp_poly_g_min_len: int,
+        fastp_poly_x: bool,
+        fastp_poly_x_min_len: int,
+        fastp_adapter_trimming: bool,
+        fastp_adapter_1: str,
+        fastp_adapter_2: str,
+        fastp_adapter_fasta: str | None,
+        fastp_detect_adapter_for_pe: bool,
+        fastp_min_length: int,
         # Bowtie2
         bt2_local: bool,
         bt2_discordant: bool,
@@ -123,18 +121,15 @@ def run(fasta: str, *,
         min_mapq: int,
         min_reads: int,
         sep_strands: bool,
-        f1r2_plus: bool,
-        minus_label: str,
+        f1r2_fwd: bool,
+        rev_label: str,
         # Parallelization
         max_procs: int,
-        parallel: bool,
         force: bool) -> list[Path]:
     """ Trim FASTQ files and align them to reference sequences. """
     # Check for external dependencies.
-    if fastqc:
-        require_dependency(FASTQC_CMD, __name__)
-    if cut:
-        require_dependency(CUTADAPT_CMD, __name__)
+    if fastp:
+        require_dependency(FASTP_CMD, __name__)
     require_dependency(BOWTIE2_CMD, __name__)
     require_dependency(BOWTIE2_BUILD_CMD, __name__)
     require_dependency(SAMTOOLS_CMD, __name__)
@@ -150,52 +145,52 @@ def run(fasta: str, *,
                                          dmfastqx=list(map(Path, dmfastqx)),
                                          phred_enc=phred_enc))
     # Generate and return a BAM file for every FASTQ-reference pair.
-    return align_samples(fq_units=fq_units,
-                         fasta=Path(fasta),
-                         out_dir=Path(out_dir),
-                         tmp_dir=tmp_dir,
-                         keep_tmp=keep_tmp,
-                         force=force,
-                         max_procs=max_procs,
-                         parallel=parallel,
-                         fastqc=fastqc,
-                         qc_extract=qc_extract,
-                         cut=cut,
-                         cut_q1=cut_q1,
-                         cut_q2=cut_q2,
-                         cut_g1=cut_g1,
-                         cut_a1=cut_a1,
-                         cut_g2=cut_g2,
-                         cut_a2=cut_a2,
-                         cut_o=cut_o,
-                         cut_e=cut_e,
-                         cut_indels=cut_indels,
-                         cut_nextseq=cut_nextseq,
-                         cut_discard_trimmed=cut_discard_trimmed,
-                         cut_discard_untrimmed=cut_discard_untrimmed,
-                         cut_m=cut_m,
-                         bt2_local=bt2_local,
-                         bt2_discordant=bt2_discordant,
-                         bt2_mixed=bt2_mixed,
-                         bt2_dovetail=bt2_dovetail,
-                         bt2_contain=bt2_contain,
-                         bt2_un=bt2_un,
-                         bt2_score_min_e2e=bt2_score_min_e2e,
-                         bt2_score_min_loc=bt2_score_min_loc,
-                         bt2_i=bt2_i,
-                         bt2_x=bt2_x,
-                         bt2_gbar=bt2_gbar,
-                         bt2_l=bt2_l,
-                         bt2_s=bt2_s,
-                         bt2_d=bt2_d,
-                         bt2_r=bt2_r,
-                         bt2_dpad=bt2_dpad,
-                         bt2_orient=bt2_orient,
-                         min_mapq=min_mapq,
-                         min_reads=min_reads,
-                         sep_strands=sep_strands,
-                         f1r2_plus=f1r2_plus,
-                         minus_label=minus_label)
+    return align_samples(
+        fq_units=fq_units,
+        fasta=Path(fasta),
+        out_dir=Path(out_dir),
+        tmp_dir=tmp_dir,
+        keep_tmp=keep_tmp,
+        force=force,
+        max_procs=max_procs,
+        fastp=fastp,
+        fastp_5=fastp_5,
+        fastp_3=fastp_3,
+        fastp_w=fastp_w,
+        fastp_m=fastp_m,
+        fastp_poly_g=fastp_poly_g,
+        fastp_poly_g_min_len=fastp_poly_g_min_len,
+        fastp_poly_x=fastp_poly_x,
+        fastp_poly_x_min_len=fastp_poly_x_min_len,
+        fastp_adapter_trimming=fastp_adapter_trimming,
+        fastp_adapter_1=fastp_adapter_1,
+        fastp_adapter_2=fastp_adapter_2,
+        fastp_adapter_fasta=optional_path(fastp_adapter_fasta),
+        fastp_detect_adapter_for_pe=fastp_detect_adapter_for_pe,
+        fastp_min_length=fastp_min_length,
+        bt2_local=bt2_local,
+        bt2_discordant=bt2_discordant,
+        bt2_mixed=bt2_mixed,
+        bt2_dovetail=bt2_dovetail,
+        bt2_contain=bt2_contain,
+        bt2_un=bt2_un,
+        bt2_score_min_e2e=bt2_score_min_e2e,
+        bt2_score_min_loc=bt2_score_min_loc,
+        bt2_i=bt2_i,
+        bt2_x=bt2_x,
+        bt2_gbar=bt2_gbar,
+        bt2_l=bt2_l,
+        bt2_s=bt2_s,
+        bt2_d=bt2_d,
+        bt2_r=bt2_r,
+        bt2_dpad=bt2_dpad,
+        bt2_orient=bt2_orient,
+        min_mapq=min_mapq,
+        min_reads=min_reads,
+        sep_strands=sep_strands,
+        f1r2_fwd=f1r2_fwd,
+        rev_label=rev_label
+    )
 
 
 # Parameters for command line interface
@@ -213,24 +208,22 @@ params = [
     opt_out_dir,
     opt_tmp_pfx,
     opt_keep_tmp,
-    # FASTQC
-    opt_fastqc,
-    opt_qc_extract,
-    # Cutadapt
-    opt_cutadapt,
-    opt_cut_a1,
-    opt_cut_g1,
-    opt_cut_a2,
-    opt_cut_g2,
-    opt_cut_o,
-    opt_cut_e,
-    opt_cut_q1,
-    opt_cut_q2,
-    opt_cut_m,
-    opt_cut_indels,
-    opt_cut_discard_trimmed,
-    opt_cut_discard_untrimmed,
-    opt_cut_nextseq,
+    # Fastp
+    opt_fastp,
+    opt_fastp_5,
+    opt_fastp_3,
+    opt_fastp_w,
+    opt_fastp_m,
+    opt_fastp_poly_g,
+    opt_fastp_poly_g_min_len,
+    opt_fastp_poly_x,
+    opt_fastp_poly_x_min_len,
+    opt_fastp_adapter_trimming,
+    opt_fastp_adapter_1,
+    opt_fastp_adapter_2,
+    opt_fastp_adapter_fasta,
+    opt_fastp_detect_adapter_for_pe,
+    opt_fastp_min_length,
     # Bowtie2
     opt_bt2_local,
     opt_bt2_discordant,
@@ -253,10 +246,9 @@ params = [
     opt_min_mapq,
     opt_min_reads,
     opt_sep_strands,
-    opt_f1r2_plus,
-    opt_minus_label,
+    opt_f1r2_fwd,
+    opt_rev_label,
     # Parallelization
-    opt_parallel,
     opt_max_procs,
     opt_force,
 ]
@@ -266,24 +258,3 @@ params = [
 def cli(*args, **kwargs):
     """ Trim FASTQ files and align them to reference sequences. """
     return run(*args, **kwargs)
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

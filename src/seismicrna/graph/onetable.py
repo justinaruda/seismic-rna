@@ -2,33 +2,32 @@ from abc import ABC, abstractmethod
 from functools import cached_property
 from itertools import chain
 from pathlib import Path
+from typing import Iterable
 
-from .base import (GraphBase,
-                   GraphRunner,
-                   GraphWriter,
-                   cgroup_table,
-                   get_action_name,
-                   make_index,
-                   make_path_subject,
-                   make_title_action_sample)
+from .base import get_action_name
+from .cgroup import (ClusterGroupRunner,
+                     cgroup_table,
+                     make_tracks)
+from .onesource import OneSourceGraph, OneSourceClusterGroupGraph
+from .table import (TableGraph,
+                    TableRunner,
+                    TableWriter,
+                    RelTableGraph,
+                    RelTableRunner)
+from ..core.table import Table, PositionTable, AbundanceTable
 from ..core.task import dispatch
-from ..table.base import Table, PosTable
+from ..core.header import K_CLUST_KEY
 
 
-class OneTableGraph(GraphBase, ABC):
+class OneTableGraph(TableGraph, OneSourceGraph, ABC):
     """ Graph of data from one Table. """
 
     def __init__(self, *,
-                 table: Table | PosTable,
-                 order: int | None,
-                 clust: int | None,
-                 order_clust_list: list[tuple[int, int]] | None,
+                 table: Table | PositionTable | AbundanceTable,
                  **kwargs):
-        super().__init__(**kwargs)
         self.table = table
-        self.order = order
-        self.clust = clust
-        self.order_clust_list = order_clust_list
+        # self.k_clust_list = kwargs.pop(K_CLUST_KEY, None)
+        super().__init__(**kwargs)
 
     @property
     def top(self):
@@ -43,8 +42,8 @@ class OneTableGraph(GraphBase, ABC):
         return self.table.ref
 
     @property
-    def sect(self):
-        return self.table.sect
+    def reg(self):
+        return self.table.reg
 
     @property
     def seq(self):
@@ -52,87 +51,62 @@ class OneTableGraph(GraphBase, ABC):
 
     @cached_property
     def action(self):
-        """ Action that generated the data. """
         return get_action_name(self.table)
 
-    @cached_property
-    def row_index(self):
-        return make_index(self.table.header,
-                          self.order,
-                          self.clust,
-                          self.order_clust_list)
 
-    @property
-    def col_index(self):
-        return None
+class OneTableRelClusterGroupGraph(OneTableGraph,
+                                   RelTableGraph,
+                                   OneSourceClusterGroupGraph,
+                                   ABC):
 
     @cached_property
-    def path_subject(self):
-        return make_path_subject(self.action, self.order, self.clust)
-
-    @cached_property
-    def title_action_sample(self):
-        return make_title_action_sample(self.action, self.sample)
+    def row_tracks(self):
+        return make_tracks(self.table, self.k, self.clust, k_clust_list=self.k_clust_list)
 
 
-class OneTableWriter(GraphWriter, ABC):
+class OneTableWriter(TableWriter, ABC):
 
-    def __init__(self, table_file: Path):
-        super().__init__(table_file)
+    def __init__(self, table: Table, **kwargs):
+        super().__init__(table, **kwargs)
 
     @cached_property
     def table(self):
         """ The table providing the data for the graph(s). """
-        return self.load_table_file(self.table_files[0])
+        assert len(self.tables) == 1
+        return self.tables[0]
 
     @abstractmethod
     def get_graph(self, *args, **kwargs) -> OneTableGraph:
         """ Return a graph instance. """
 
-    def iter_graphs(self,
-                    rels: tuple[str, ...],
-                    cgroup: str,
-                    **kwargs):
+
+class OneTableRelClusterGroupWriter(OneTableWriter, ABC):
+
+    def iter_graphs(self, *, rels: list[str], cgroup: str, **kwargs):
         for cparams in cgroup_table(self.table, cgroup):
             for rels_group in rels:
                 yield self.get_graph(rels_group, **kwargs | cparams)
 
 
-class OneTableRunner(GraphRunner, ABC):
+class OneTableRunner(TableRunner, ABC):
 
     @classmethod
     def run(cls,
-            input_path: tuple[str, ...], *,
+            input_path: Iterable[str | Path], *,
             max_procs: int,
-            parallel: bool,
             **kwargs):
         # Generate a table writer for each table.
         writer_type = cls.get_writer_type()
         writers = [writer_type(table_file)
-                   for table_file in cls.list_table_files(input_path)]
+                   for table_file in cls.load_input_files(input_path)]
         return list(chain(*dispatch([writer.write for writer in writers],
                                     max_procs,
-                                    parallel,
                                     pass_n_procs=False,
                                     kwargs=kwargs)))
 
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################
+
+class OneTableRelClusterGroupRunner(OneTableRunner,
+                                    RelTableRunner,
+                                    ClusterGroupRunner,
+                                    ABC):
+    pass

@@ -1,4 +1,5 @@
 # Sphinx documentation
+docs/
 _build/
 _autosummary/
 
@@ -9,20 +10,30 @@ src/seismic_rna.egg-info
 # Byte-compiled
 __pycache__/
 
-# C extensions
+# Object code
+*.o
 *.so
 
-# PyCharm
-.idea
-
-# Log files
+# Output files
+out/
+tmp*/
+sim/refs
+sim/params
+sim/samples
+log/
 *.log
 
 # macOS
 .DS_Store
 
+# PyCharm
+.idea
+
 # Spyder
-src/seismicrna/.spyproject
+.spyproject
 
 # out
 out/
+
+# VS Code
+.vscode

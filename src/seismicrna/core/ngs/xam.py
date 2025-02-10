@@ -1,11 +1,9 @@
 import re
-from logging import getLogger
 from pathlib import Path
 from subprocess import CompletedProcess
 
+from ..logs import logger
 from ..extern import SAMTOOLS_CMD, args_to_cmd, ShellCommand
-
-logger = getLogger(__name__)
 
 # SAM file format specifications
 SAM_HEADER = "@"
@@ -38,6 +36,10 @@ MAX_FLAG = sum([FLAG_PAIRED,
                 FLAG_QCFAIL,
                 FLAG_DUPLICATE,
                 FLAG_SUPPLEMENTARY])
+
+
+class DuplicateSampleReferenceError(ValueError):
+    """ A sample-reference pair occurred more than once. """
 
 
 def calc_extra_threads(n_procs: int):
@@ -141,7 +143,7 @@ def view_xam_cmd(xam_inp: Path | None,
                  refs_file: Path | None = None,
                  n_procs: int = 1):
     """ Convert between SAM and BAM formats, extract reads aligning to a
-    specific reference/section, and filter by flag and mapping quality
+    specific reference/region, and filter by flag and mapping quality
     using `samtools view`. """
     args = [SAMTOOLS_CMD, "view",
             "-@", calc_extra_threads(n_procs)]
@@ -184,10 +186,10 @@ def view_xam_cmd(xam_inp: Path | None,
         args.append("-u")
     if xam_inp:
         args.append(xam_inp)
-    # Reference and section specification
+    # Reference and region specification
     if ref:
         if end5 is not None and end3 is not None:
-            # View only reads aligning to a section of this reference.
+            # View only reads aligning to a region of this reference.
             args.append(f"{ref}:{end5}-{end3}")
         else:
             # View only reads aligning to this reference.
@@ -259,9 +261,9 @@ def count_single_paired(flagstats: dict):
             f"mapped reads in total, but got {paired_end_reads} > {mapped}, "
             "which indicates a bug"
         )
-    logger.debug(f"Proper pairs: {paired_end_pairs_proper}\n"
-                 f"Other paired-end reads: {paired_end_reads_improper}\n"
-                 f"Single-end reads: {single_end_reads}")
+    logger.detail(f"Proper pairs: {paired_end_pairs_proper}\n"
+                  f"Other paired-end reads: {paired_end_reads_improper}\n"
+                  f"Single-end reads: {single_end_reads}")
     return paired_end_pairs_proper, paired_end_reads_improper, single_end_reads
 
 
@@ -365,24 +367,3 @@ def xam_to_fastq_cmd(xam_inp: Path | None,
     if fq_out is not None:
         args.extend([">", fq_out])
     return args_to_cmd(args)
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

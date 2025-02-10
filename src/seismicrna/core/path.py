@@ -1,47 +1,17 @@
-"""
-
-Path Core Module
-
-========================================================================
-
-Most of the steps in SEISMIC-RNA produce files that other steps use. For
-example, the 'align' step writes alignment map (BAM) files, from which
-the 'relate' step writes relation vector files, which both the 'mask'
-and 'table' steps use.
-
-Steps that pass files to each other must agree on
-
-- the path to the file, so that the second step can find the file
-- the meaning of each part of the path, so that the second step can
-  parse information contained in the path
-
-Although these path conventions could be written separately in each
-subpackage or module, this strategy is not ideal for several reasons:
-
-- It would risk inconsistencies among the modules, causing bugs.
-- Changing the conventions would require modifying every module, which
-  would be not only tedious but also risky for the first reason.
-- Defining all the conventions in one place would reduce the size of the
-  code base, improving readability, maintainability, and distribution.  
-
-This module defines all file path conventions for all other modules.
-
-"""
-
 from __future__ import annotations
 
 import os
 import pathlib
 import re
+import shutil
 from collections import Counter
 from functools import cache, cached_property, partial, wraps
 from itertools import chain, product
-from logging import getLogger
 from string import ascii_letters, digits, printable
 from tempfile import mkdtemp
 from typing import Any, Callable, Iterable, Sequence
 
-logger = getLogger(__name__)
+from .logs import logger
 
 # Constants ############################################################
 
@@ -61,18 +31,17 @@ STR_PATTERN = f"([{STR_CHARS}]+)"
 INT_PATTERN = f"([{INT_CHARS}]+)"
 RE_PATTERNS = {str: STR_PATTERN, int: INT_PATTERN, pathlib.Path: PATH_PATTERN}
 
-# Directories for commands
 
-QC_INIT_DIR = "qc-initial"
-QC_TRIM_DIR = "qc-trimmed"
-CMD_ALIGN_DIR = "align"
-CMD_REL_DIR = "relate"
-CMD_MASK_DIR = "mask"
-CMD_CLUST_DIR = "cluster"
-CMD_TABLE_DIR = "table"
-CMD_LIST_DIR = "list"
-CMD_FOLD_DIR = "fold"
-CMD_GRAPH_DIR = "graph"
+# Names of steps
+ALIGN_STEP = "align"
+RELATE_STEP = "relate"
+NAMES_STEP = "names"
+MASK_STEP = "mask"
+CLUSTER_STEP = "cluster"
+DECONVOLVE_STEP = "deconvolve"
+LIST_STEP = "list"
+FOLD_STEP = "fold"
+GRAPH_STEP = "graph"
 
 # Directories for simulation
 
@@ -97,21 +66,16 @@ STAGES = (STAGE_ALIGN_INDEX,
           STAGE_ALIGN_SORT,
           STAGE_REL_SAMS)
 
-# Tables
+# Cluster information
+CLUST_PARAM_PIS = "pis"
+CLUST_PARAM_MUS = "mus"
+CLUST_PARAMS = (CLUST_PARAM_PIS,
+                CLUST_PARAM_MUS)
+CLUST_PARAMS_DIR = "parameters"
+CLUST_STATS_DIR = "statistics"
+CLUST_COUNTS_DIR = "read-counts"
 
-CLUST_PROP_RUN_TABLE = "props"
-CLUST_MUS_RUN_TABLE = "mus"
-CLUST_RESP_RUN_TABLE = "resps"
-CLUST_COUNT_RUN_TABLE = "counts"
-CLUST_TABLES = (CLUST_PROP_RUN_TABLE,
-                CLUST_MUS_RUN_TABLE,
-                CLUST_RESP_RUN_TABLE,
-                CLUST_COUNT_RUN_TABLE)
-
-RELATE_TABLE = "relate"
-MASK_TABLE = "mask"
-CLUST_TABLE = "clust"
-TABLES = (RELATE_TABLE, MASK_TABLE, CLUST_TABLE)
+TABLES = (RELATE_STEP, MASK_STEP, CLUSTER_STEP, DECONVOLVE_STEP)
 
 # File extensions
 
@@ -137,6 +101,7 @@ FQ_EXTS = (".fq.gz",
            "_001.fastq.gz",
            "_001.fq",
            "_001.fastq")
+SVG_EXT = ".svg"
 FQ_PAIRED_EXTS_TEMPLATES = "_R{}{}", "_{}{}", "_mate{}{}", "_{}_sequence{}"
 FQ1_EXTS = tuple(template.format(1, ext) for template, ext in
                  product(FQ_PAIRED_EXTS_TEMPLATES, FQ_EXTS))
@@ -153,8 +118,10 @@ DBN_EXT = ".dbn"
 DOT_EXT = ".dot"
 DOT_EXTS = DB_EXT, DBN_EXT, DOT_EXT
 DMS_EXT = ".dms"
+KTS_EXT = ".kts"
 HTML_EXT = ".html"
 SVG_EXT = ".svg"
+KTS_EXT = ".kts"
 PDF_EXT = ".pdf"
 PNG_EXT = ".png"
 GRAPH_EXTS = CSV_EXT, HTML_EXT, SVG_EXT, PDF_EXT, PNG_EXT
@@ -166,15 +133,19 @@ PARAM_CLUSTS_EXT = f".clusts{CSV_EXT}"
 # Path Exceptions ######################################################
 
 class PathError(Exception):
-    """ Any error involving a path """
+    """ Any error involving a path. """
 
 
 class PathTypeError(PathError, TypeError):
-    """ Use of the wrong type of path or segment """
+    """ Use of the wrong type of path or segment. """
 
 
 class PathValueError(PathError, ValueError):
-    """ Invalid value of a path segment field """
+    """ Invalid value of a path segment field. """
+
+
+class WrongFileExtensionError(PathValueError):
+    """ A file has the wrong extension. """
 
 
 # Path Functions #######################################################
@@ -202,6 +173,45 @@ def sanitize(path: str | pathlib.Path, strict: bool = False):
         Absolute, normalized, symlink-free path.
     """
     return pathlib.Path(path).resolve(strict=strict)
+
+
+@cache
+def get_seismicrna_source_dir():
+    """ SEISMIC-RNA source directory, named seismicrna, containing
+    __init__.py and the top-level modules and subpackages. """
+    seismicrna_src_dir = sanitize(__file__, strict=True).parent.parent
+    try:
+        from seismicrna import __file__ as seismicrna_file
+    except ImportError:
+        seismicrna_file = None
+    if seismicrna_file:
+        seismicrna_parent = sanitize(seismicrna_file).parent
+        if seismicrna_parent != seismicrna_src_dir:
+            raise PathValueError("Inconsistent source directory: "
+                                 f"{seismicrna_src_dir} ≠ {seismicrna_parent}")
+    else:
+        logger.warning("seismicrna is not installed: skipped verifying path")
+    name = "seismicrna"
+    if seismicrna_src_dir.name != name:
+        raise PathValueError(f"Source directory {seismicrna_src_dir} "
+                             f"is not named {repr(name)}")
+    return seismicrna_src_dir
+
+
+@cache
+def get_seismicrna_project_dir():
+    """ SEISMIC-RNA project directory, named seismic-rna, containing
+    src, pyproject.toml, and all other project files. Will exist if the
+    entire SEISMIC-RNA project has been downloaded, e.g. from GitHub,
+    but not if SEISMIC-RNA was only installed using pip or conda. """
+    seismicrna_prj_dir = get_seismicrna_source_dir().parent.parent
+    name = "seismic-rna"
+    if seismicrna_prj_dir.name != name:
+        # It is fine if the project directory does not exist because
+        # installing SEISMIC-RNA using pip or conda installs only the
+        # source directory, but not the project directory.
+        return None
+    return seismicrna_prj_dir
 
 
 # Path Fields ##########################################################
@@ -248,7 +258,7 @@ class Field(object):
                  options: Iterable = (),
                  is_ext: bool = False):
         self.dtype = dtype
-        self.options = tuple(options)
+        self.options = list(options)
         if not all(isinstance(option, self.dtype) for option in self.options):
             raise PathTypeError("All options of a field must be of its type")
         self.is_ext = is_ext
@@ -265,7 +275,8 @@ class Field(object):
                                 f"got {repr(val)} ({repr(type(val).__name__)})")
         if self.options and val not in self.options:
             raise PathValueError(
-                f"Invalid option {repr(val)}; expected one of {self.options}")
+                f"Invalid option {repr(val)}; expected one of {self.options}"
+            )
         VALIDATE[self.dtype](val)
 
     def build(self, val: Any):
@@ -278,34 +289,39 @@ class Field(object):
         try:
             val = self.dtype(text)
         except Exception as error:
-            raise PathValueError(f"Failed to interpret {repr(text)} as type "
-                                 f"{repr(self.dtype.__name__)}: {error}")
+            raise PathValueError(
+                f"Failed to interpret {repr(text)} as type "
+                f"{repr(self.dtype.__name__)}: {error}"
+            ) from None
         self.validate(val)
         return val
 
+    @cached_property
+    def as_str(self):
+        # Define the string as a cached property to speed up str(self).
+        return f"{type(self).__name__} <{self.dtype.__name__}>"
+
     def __str__(self):
-        return f"{type(self).__name__}: {repr(self.dtype.__name__)}"
+        return self.as_str
 
 
 # Fields
 TopField = Field(pathlib.Path)
 NameField = Field(str)
-CmdField = Field(str, [QC_INIT_DIR,
-                       QC_TRIM_DIR,
-                       CMD_ALIGN_DIR,
-                       CMD_REL_DIR,
-                       CMD_MASK_DIR,
-                       CMD_CLUST_DIR,
-                       CMD_TABLE_DIR,
-                       CMD_LIST_DIR,
-                       CMD_FOLD_DIR,
-                       CMD_GRAPH_DIR])
+CmdField = Field(str, [ALIGN_STEP,
+                       RELATE_STEP,
+                       MASK_STEP,
+                       CLUSTER_STEP,
+                       DECONVOLVE_STEP,
+                       LIST_STEP,
+                       FOLD_STEP,
+                       GRAPH_STEP])
 StageField = Field(str, STAGES)
 IntField = Field(int)
-ClustTabField = Field(str, CLUST_TABLES)
+ClustRunResultsField = Field(str, CLUST_PARAMS)
 PosTableField = Field(str, TABLES)
 ReadTableField = Field(str, TABLES)
-FreqTableField = Field(str, [CLUST_TABLE])
+AbundanceField = Field(str, [CLUSTER_STEP, DECONVOLVE_STEP])
 
 # File extensions
 TextExt = Field(str, [TXT_EXT], is_ext=True)
@@ -313,10 +329,9 @@ ReportExt = Field(str, [JSON_EXT], is_ext=True)
 RefseqFileExt = Field(str, [BROTLI_PICKLE_EXT], is_ext=True)
 BatchExt = Field(str, [BROTLI_PICKLE_EXT], is_ext=True)
 ClustTabExt = Field(str, CSV_EXTS, is_ext=True)
-ClustCountExt = Field(str, CSV_EXTS, is_ext=True)
 PosTableExt = Field(str, [CSV_EXT], is_ext=True)
 ReadTableExt = Field(str, [CSVZIP_EXT], is_ext=True)
-FreqTableExt = Field(str, [CSV_EXT], is_ext=True)
+AbundanceExt = Field(str, [CSV_EXT], is_ext=True)
 FastaExt = Field(str, FASTA_EXTS, is_ext=True)
 FastaIndexExt = Field(str, BOWTIE2_INDEX_EXTS, is_ext=True)
 FastqExt = Field(str, FQ_EXTS, is_ext=True)
@@ -328,6 +343,22 @@ DotBracketExt = Field(str, DOT_EXTS, is_ext=True)
 DmsReactsExt = Field(str, [DMS_EXT], is_ext=True)
 GraphExt = Field(str, GRAPH_EXTS, is_ext=True)
 WebAppFileExt = Field(str, [JSON_EXT], is_ext=True)
+SvgExt = Field(str, [SVG_EXT], is_ext=True)
+KtsExt = Field(str, [KTS_EXT], is_ext=True)
+
+
+def check_file_extension(file: pathlib.Path,
+                         extensions: Iterable[str] | Field):
+    if isinstance(extensions, Field):
+        if not extensions.is_ext:
+            raise PathValueError(f"{extensions} is not an extension field")
+        extensions = extensions.options
+    elif not isinstance(extensions, (tuple, list, set, dict)):
+        extensions = set(extensions)
+    if file.suffix not in extensions:
+        raise WrongFileExtensionError(
+            f"Extension of {file} is not one of {extensions}"
+        )
 
 
 # Path Segments ########################################################
@@ -335,14 +366,13 @@ WebAppFileExt = Field(str, [JSON_EXT], is_ext=True)
 # Segment class
 
 class Segment(object):
+
     def __init__(self, segment_name: str,
                  field_types: dict[str, Field], *,
                  order: int = 0,
                  frmt: str | None = None):
         self.name = segment_name
         self.field_types = field_types
-        if not self.field_types:
-            raise PathValueError(f"Segment got no fields")
         # Verify that a field has the key EXT if and only if it is an
         # extension and is the last field in the segment.
         for i, (name, field) in enumerate(self.field_types.items(), start=1):
@@ -382,10 +412,10 @@ class Segment(object):
         return self.field_types.get(EXT)
 
     @cached_property
-    def exts(self) -> tuple[str, ...]:
+    def exts(self) -> list[str]:
         """ Valid file extensions of the segment. """
         if self.ext_type is None:
-            return tuple()
+            return list()
         if not self.ext_type.options:
             raise ValueError(f"{self} extension {self.ext_type} has no options")
         return self.ext_type.options
@@ -409,8 +439,7 @@ class Segment(object):
         fields = {name: field.build(vals[name])
                   for name, field in self.field_types.items()}
         # Return the formatted segment.
-        segment = self.frmt.format(**fields)
-        return segment
+        return self.frmt.format(**fields)
 
     def parse(self, text: str):
         ext = None
@@ -418,14 +447,14 @@ class Segment(object):
             # If the segment has a file extension, then determine the
             # longest valid file extension that matches the text.
             if (ext := self.match_longest_ext(text)) is None:
-                raise PathValueError(f"Segment '{text}' is missing a file "
+                raise PathValueError(f"Segment {repr(text)} is missing a file "
                                      f"extension; expected one of {self.exts}")
             # Remove the file extension from the end of the text.
             text = text[: -len(ext)]
         # Try to parse the text (with the extension, if any, removed).
         if not (match := self.ptrn.match(text)):
-            raise PathValueError(f"Could not parse fields in text '{text}' "
-                                 f"using pattern '{self.ptrn}'")
+            raise PathValueError(f"Could not parse fields in text {repr(text)} "
+                                 f"using pattern {repr(self.ptrn)}")
         vals = list(match.groups())
         # If there is an extension field, add its value back to the end
         # of the parsed values.
@@ -433,12 +462,16 @@ class Segment(object):
             vals.append(ext)
         # Return a dict of the names of the fields in the segment and
         # their parsed values.
-        fields = {name: field.parse(group) for (name, field), group
-                  in zip(self.field_types.items(), vals, strict=True)}
-        return fields
+        return {name: field.parse(group) for (name, field), group
+                in zip(self.field_types.items(), vals, strict=True)}
+
+    @cached_property
+    def as_str(self):
+        # Define the string as a cached property to speed up str(self).
+        return f"{type(self).__name__} {repr(self.name)}"
 
     def __str__(self):
-        return f"{type(self).__name__}: {repr(self.name)}"
+        return self.as_str
 
 
 # Field names
@@ -448,7 +481,7 @@ STAGE = "stage"
 CMD = "cmd"
 SAMP = "sample"
 REF = "ref"
-SECT = "sect"
+REG = "reg"
 BATCH = "batch"
 TABLE = "table"
 NCLUST = "k"
@@ -456,6 +489,7 @@ RUN = "run"
 PROFILE = "profile"
 GRAPH = "graph"
 EXT = "ext"
+STRUCT = "struct"
 
 # Directory segments
 
@@ -464,7 +498,7 @@ StageSeg = Segment("stage-dir", {STAGE: StageField}, order=70)
 SampSeg = Segment("sample-dir", {SAMP: NameField}, order=60)
 CmdSeg = Segment("command-dir", {CMD: CmdField}, order=50)
 RefSeg = Segment("ref-dir", {REF: NameField}, order=30)
-SectSeg = Segment("section-dir", {SECT: NameField}, order=20)
+RegSeg = Segment("reg-dir", {REG: NameField}, order=20)
 
 # File segments
 
@@ -492,43 +526,61 @@ AlignRefRepSeg = Segment("align-ref-rep",
                          frmt="{ref}__align-report{ext}")
 
 # Relate
-RefseqFileSeg = Segment("refseq-file", {EXT: RefseqFileExt}, frmt="refseq{ext}")
-QnamesBatSeg = Segment("name-bat",
+RefseqFileSeg = Segment("refseq-file",
+                        {EXT: RefseqFileExt},
+                        frmt="refseq{ext}")
+ReadNamesBatSeg = Segment("names-bat",
+                          {BATCH: IntField, EXT: BatchExt},
+                          frmt=NAMES_STEP + "-batch-{batch}{ext}")
+RelateBatSeg = Segment(f"relate-bat",
                        {BATCH: IntField, EXT: BatchExt},
-                       frmt="qnames-batch-{batch}{ext}")
-RelateBatSeg = Segment("rel-bat",
-                       {BATCH: IntField, EXT: BatchExt},
-                       frmt="relate-batch-{batch}{ext}")
-RelateRepSeg = Segment("rel-rep", {EXT: ReportExt}, frmt="relate-report{ext}")
+                       frmt=RELATE_STEP + "-batch-{batch}{ext}")
+RelateRepSeg = Segment(f"relate-rep",
+                       {EXT: ReportExt},
+                       frmt=RELATE_STEP + "-report{ext}")
 
 # Mask
-MaskBatSeg = Segment("mask-bat",
+MaskBatSeg = Segment(f"{MASK_STEP}-bat",
                      {BATCH: IntField, EXT: BatchExt},
-                     frmt="mask-batch-{batch}{ext}")
-MaskRepSeg = Segment("mask-rep", {EXT: ReportExt}, frmt="mask-report{ext}")
+                     frmt=MASK_STEP + "-batch-{batch}{ext}")
+MaskRepSeg = Segment("mask-rep",
+                     {EXT: ReportExt},
+                     frmt=MASK_STEP + "-report{ext}")
 
 # Cluster
-ClustTabSeg = Segment("clust-tab", {TABLE: ClustTabField,
-                                    NCLUST: IntField,
-                                    RUN: IntField,
-                                    EXT: ClustTabExt},
-                      frmt="{table}-k{k}-r{run}{ext}")
-ClustCountSeg = Segment("clust-count", {EXT: ClustCountExt}, frmt="counts{ext}")
-ClustBatSeg = Segment("clust-bat",
+ClustParamsDirSeg = Segment(f"cluster-run-res-dir",
+                            {},
+                            frmt=CLUST_PARAMS_DIR,
+                            order=10)
+ClustParamsFileSeg = Segment(f"cluster-run-res",
+                             {TABLE: ClustRunResultsField,
+                              NCLUST: IntField,
+                              RUN: IntField,
+                              EXT: ClustTabExt},
+                             frmt="k{k}-r{run}_{table}{ext}")
+ClustBatSeg = Segment("cluster-bat",
                       {BATCH: IntField, EXT: BatchExt},
-                      frmt="cluster-batch-{batch}{ext}")
-ClustRepSeg = Segment("clust-rep", {EXT: ReportExt}, frmt="cluster-report{ext}")
+                      frmt=CLUSTER_STEP + "-batch-{batch}{ext}")
+ClustRepSeg = Segment("cluster-rep",
+                      {EXT: ReportExt},
+                      frmt=CLUSTER_STEP + "-report{ext}")
+
+# Deconvolve
+DeconvBatSeg = Segment("deconv-bat",
+                      {BATCH: IntField, EXT: BatchExt},
+                      frmt="deconvolve-batch-{batch}{ext}")
+DeconvRepSeg = Segment("deconv-rep", {EXT: ReportExt}, frmt="deconvolve-report{ext}")
 
 # Table
-PosTableSeg = Segment("pos-table",
-                      {TABLE: PosTableField, EXT: PosTableExt},
-                      frmt="{table}-per-pos{ext}")
+PositionTableSeg = Segment("position-table",
+                           {TABLE: PosTableField, EXT: PosTableExt},
+                           frmt="{table}-position-table{ext}")
 ReadTableSeg = Segment("read-table",
                        {TABLE: ReadTableField, EXT: ReadTableExt},
-                       frmt="{table}-per-read{ext}")
-FreqTableSeg = Segment("freq-table",
-                       {TABLE: FreqTableField, EXT: FreqTableExt},
-                       frmt="{table}-freq{ext}")
+                       frmt="{table}-read-table{ext}")
+AbundanceTableSeg = Segment("abundance-table",
+                            {TABLE: AbundanceField, EXT: AbundanceExt},
+                            frmt="{table}-abundance-table{ext}")
 
 # Fold
 FoldRepSeg = Segment("fold-rep",
@@ -544,6 +596,12 @@ VarnaColorSeg = Segment("varna-color",
                         {PROFILE: NameField, EXT: TextExt},
                         frmt="{profile}__varna-color{ext}")
 
+# Draw
+SvgSeg = Segment("svg", {PROFILE: NameField, STRUCT: IntField, EXT: SvgExt},
+                 frmt="{profile}-{struct}{ext}")
+KtsSeg = Segment("kts", {PROFILE: NameField, STRUCT: IntField, EXT: KtsExt},
+                 frmt="{profile}-{struct}{ext}")
+
 # Graphs
 GraphSeg = Segment("graph", {GRAPH: NameField, EXT: GraphExt})
 
@@ -555,7 +613,7 @@ WebAppFileSeg = Segment("webapp",
 # Path segment patterns
 CMD_DIR_SEGS = SampSeg, CmdSeg
 REF_DIR_SEGS = CMD_DIR_SEGS + (RefSeg,)
-SECT_DIR_SEGS = REF_DIR_SEGS + (SectSeg,)
+REG_DIR_SEGS = REF_DIR_SEGS + (RegSeg,)
 STAGE_DIR_SEGS = SampSeg, CmdSeg, StageSeg
 FASTA_STAGE_SEGS = StageSeg, FastaSeg
 FASTA_INDEX_DIR_STAGE_SEGS = StageSeg, RefSeg
@@ -567,13 +625,9 @@ DMFASTQ1_SEGS = SampSeg, DmFastq1Seg
 DMFASTQ2_SEGS = SampSeg, DmFastq2Seg
 XAM_SEGS = CMD_DIR_SEGS + (XamSeg,)
 XAM_STAGE_SEGS = STAGE_DIR_SEGS + (XamSeg,)
-CLUST_TAB_SEGS = SECT_DIR_SEGS + (ClustTabSeg,)
-CLUST_COUNT_SEGS = SECT_DIR_SEGS + (ClustCountSeg,)
-POS_TABLE_SEGS = SECT_DIR_SEGS + (PosTableSeg,)
-READ_TABLE_SEGS = SECT_DIR_SEGS + (ReadTableSeg,)
-FREQ_TABLE_SEGS = SECT_DIR_SEGS + (FreqTableSeg,)
-CT_FILE_SEGS = SECT_DIR_SEGS + (ConnectTableSeg,)
-DB_FILE_SEGS = SECT_DIR_SEGS + (DotBracketSeg,)
+CLUST_TAB_SEGS = REG_DIR_SEGS + (ClustParamsDirSeg, ClustParamsFileSeg)
+CT_FILE_SEGS = REG_DIR_SEGS + (ConnectTableSeg,)
+DB_FILE_SEGS = REG_DIR_SEGS + (DotBracketSeg,)
 
 
 # Paths ################################################################
@@ -582,6 +636,7 @@ DB_FILE_SEGS = SECT_DIR_SEGS + (DotBracketSeg,)
 # Path class
 
 class Path(object):
+
     def __init__(self, *seg_types: Segment):
         # Sort the non-redundant segment types in the path from largest
         # to smallest value of their order attribute.
@@ -647,11 +702,96 @@ class Path(object):
             fields.update(seg_type.parse(tail))
         return fields
 
-    def __str__(self):
+    @cached_property
+    def as_str(self):
+        # Define the string as a cached property to speed up str(self).
         return f"{type(self).__name__}: {list(map(str, self.seg_types))}"
+
+    def __str__(self):
+        return self.as_str
+
+
+# mkdir/symlink/rmdir.
+
+
+def mkdir_if_needed(path: pathlib.Path | str):
+    """ Create a directory and log that event if it does not exist. """
+    path = sanitize(path, strict=False)
+    try:
+        path.mkdir(parents=True)
+    except FileExistsError:
+        if not path.is_dir():
+            # Raise an error if the existing path is not a directory,
+            # e.g. if it is a file.
+            raise NotADirectoryError(path) from None
+        return path
+    logger.action(f"Created directory {path}")
+    return path
+
+
+def symlink_if_needed(link_path: pathlib.Path | str,
+                      target_path: pathlib.Path | str):
+    """ Make link_path a link pointing to target_path and log that event
+    if it does not exist. """
+    link_path = pathlib.Path(link_path)
+    target_path = sanitize(target_path, strict=True)
+    try:
+        link_path.symlink_to(target_path)
+    except FileExistsError:
+        # link_path already exists, so make sure it is a symbolic link
+        # that points to target_path.
+        try:
+            readlink = link_path.readlink()
+        except OSError:
+            raise OSError(f"{link_path} is not a symbolic link") from None
+        if readlink != target_path:
+            raise OSError(f"{link_path} is a symbolic link to {readlink}, "
+                          f"not to {target_path}") from None
+        return link_path
+    logger.action(f"Made {link_path} a symbolic link to {target_path}")
+    return link_path
+
+
+def rmdir_if_needed(path: pathlib.Path | str,
+                    rmtree: bool = False,
+                    rmtree_ignore_errors: bool = False,
+                    raise_on_rmtree_error: bool = True):
+    """ Remove a directory and log that event if it exists. """
+    path = sanitize(path, strict=False)
+    try:
+        path.rmdir()
+    except FileNotFoundError:
+        # The path does not exist, so there is no need to delete it.
+        # FileNotFoundError is a subclass of OSError, so need to handle
+        # this exception before OSError.
+        logger.detail(f"Skipped removing directory {path}: does not exist")
+        return path
+    except NotADirectoryError:
+        # Trying to rmdir() something that is not a directory should
+        # always raise an error. NotADirectoryError is a subclass of
+        # OSError, so need to handle this exception before OSError.
+        raise
+    except OSError:
+        # The directory exists but could not be removed for some reason,
+        # probably that it is not empty.
+        if not rmtree:
+            # For safety, remove directories recursively only if given
+            # explicit permission to do so; if not, re-raise the error.
+            raise
+        try:
+            shutil.rmtree(path, ignore_errors=rmtree_ignore_errors)
+        except Exception as error:
+            if raise_on_rmtree_error:
+                raise
+            # If not raising errors, then log a warning but return now
+            # to avoid logging that the directory was removed.
+            logger.warning(error)
+            return path
+    logger.action(f"Removed directory {path}")
 
 
 # Path creation routines
+
 
 @cache
 def create_path_type(*segment_types: Segment):
@@ -668,16 +808,14 @@ def build(*segment_types: Segment, **field_values: Any):
 def builddir(*segment_types: Segment, **field_values: Any):
     """ Build the path and create it on the file system as a directory
     if it does not already exist. """
-    path = build(*segment_types, **field_values)
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return mkdir_if_needed(build(*segment_types, **field_values))
 
 
 def buildpar(*segment_types: Segment, **field_values: Any):
     """ Build a path and create its parent directory if it does not
     already exist. """
     path = build(*segment_types, **field_values)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    mkdir_if_needed(path.parent)
     return path
 
 
@@ -687,24 +825,30 @@ def randdir(parent: str | pathlib.Path | None = None,
     """ Build a path of a new directory that does not exist and create
     it on the file system. """
     parent = sanitize(parent) if parent is not None else pathlib.Path.cwd()
-    return pathlib.Path(mkdtemp(dir=parent, prefix=prefix, suffix=suffix))
+    path = pathlib.Path(mkdtemp(dir=parent, prefix=prefix, suffix=suffix))
+    logger.action(f"Created directory {path}")
+    return path
 
 
 # Path parsing routines
 
 def get_fields_in_seg_types(*segment_types: Segment) -> dict[str, Field]:
     """ Get all fields among the given segment types. """
-    return {field_name: field
-            for segment_type in segment_types
-            for field_name, field in segment_type.field_types.items()}
+    fields = {field_name: field
+              for segment_type in segment_types
+              for field_name, field in segment_type.field_types.items()}
+    return fields
 
 
-def deduplicate(paths: Iterable[str | pathlib.Path]):
+def deduplicate(paths: Iterable[str | pathlib.Path], warn: bool = True):
     """ Yield the non-redundant paths. """
+    total = 0
     seen = set()
     for path in map(sanitize, paths):
+        total += 1
         if path in seen:
-            logger.warning(f"Duplicate path: {path}")
+            if warn:
+                logger.warning(f"Duplicate path: {path}")
         else:
             seen.add(path)
             yield path
@@ -727,8 +871,8 @@ def parse(path: str | pathlib.Path, /, *segment_types: Segment):
 
 def parse_top_separate(path: str | pathlib.Path, /, *segment_types: Segment):
     """ Return the fields of a path, and the `top` field separately. """
-    fields = parse(path, *segment_types)
-    return fields.pop(TOP), fields
+    field_values = parse(path, *segment_types)
+    return field_values.pop(TOP), field_values
 
 
 def path_matches(path: str | pathlib.Path, segments: Sequence[Segment]):
@@ -759,7 +903,9 @@ def path_matches(path: str | pathlib.Path, segments: Sequence[Segment]):
 
 
 @deduplicated
-def find_files(path: str | pathlib.Path, segments: Sequence[Segment]):
+def find_files(path: str | pathlib.Path,
+               segments: Sequence[Segment],
+               pre_sanitize: bool = True):
     """ Yield all files that match a sequence of path segments.
     The behavior depends on what `path` is:
 
@@ -774,25 +920,30 @@ def find_files(path: str | pathlib.Path, segments: Sequence[Segment]):
         Path of a file to check or a directory to search recursively.
     segments: Sequence[Segment]
         Sequence(s) of Path segments to check if each file matches.
+    pre_sanitize: bool
+        Whether to sanitize the path before searching it.
 
     Returns
     -------
     Generator[Path, Any, None]
         Paths of files matching the segments.
     """
-    path = sanitize(path, strict=True)
-    if path.is_dir():
-        # Search the directory for files matching the segments.
-        logger.debug(f"Searching {path} and any subdirectories "
-                     f"for files matching {list(map(str, segments))}")
-        yield from chain(*map(partial(find_files, segments=segments),
-                              path.iterdir()))
-    else:
-        # Assume the path is a file; check if it matches the segments.
+    if pre_sanitize:
+        path = sanitize(path, strict=True)
+    if path.is_file():
+        # Check if the file matches the segments.
         if path_matches(path, segments):
             # If so, then yield it.
-            logger.debug(f"File {path} matches {list(map(str, segments))}")
+            logger.detail(f"Found file {path}")
             yield path
+    else:
+        # Search the directory for files matching the segments.
+        logger.routine(f"Began recursively searching directory {path}")
+        yield from chain(*map(partial(find_files,
+                                      segments=segments,
+                                      pre_sanitize=False),
+                              path.iterdir()))
+        logger.routine(f"Ended recursively searching directory {path}")
 
 
 @deduplicated
@@ -803,7 +954,7 @@ def find_files_chain(paths: Iterable[str | pathlib.Path],
         try:
             yield from find_files(path, segments)
         except Exception as error:
-            logger.error(f"Failed search for {path}: {error}")
+            logger.error(error)
 
 
 # Path transformation routines
@@ -835,13 +986,15 @@ def cast_path(input_path: pathlib.Path,
     """
     # Extract the fields from the input path using the input segments.
     top, fields = parse_top_separate(input_path, *input_segments)
-    # Override and supplement the fields in the input path.
-    fields |= override
+    if override:
+        # Override and supplement the fields in the input path.
+        fields |= override
     # Normalize the fields to comply with the output segments.
     fields = {field_name: fields[field_name]
               for field_name in get_fields_in_seg_types(*output_segments)}
     # Generate a new output path from the normalized fields.
-    return build(*output_segments, top=top, **fields)
+    output_path = build(*output_segments, top=top, **fields)
+    return output_path
 
 
 def transpath(to_dir: str | pathlib.Path,
@@ -912,24 +1065,3 @@ def transpaths(to_dir: str | pathlib.Path,
     common_path = os.path.commonpath([sanitize(p, strict) for p in paths])
     # Move each path from that common path to the given directory.
     return tuple(transpath(to_dir, common_path, p, strict) for p in paths)
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

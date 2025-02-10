@@ -3,11 +3,18 @@ import unittest as ut
 import numpy as np
 import pandas as pd
 
+from seismicrna.core.array import calc_inverse
 from seismicrna.core.batch.count import (calc_coverage,
                                          _calc_uniq_read_weights,
-                                         count_end_coords)
+                                         count_end_coords,
+                                         calc_rels_per_pos,
+                                         calc_rels_per_read,
+                                         calc_count_per_pos,
+                                         calc_count_per_read)
 from seismicrna.core.batch.ends import END5_COORD, END3_COORD
-from seismicrna.core.seq.section import SEQ_INDEX_NAMES
+from seismicrna.core.rel import HalfRelPattern, RelPattern
+from seismicrna.core.seq.region import SEQ_INDEX_NAMES, seq_pos_to_index
+from seismicrna.core.seq.xna import DNA
 
 rng = np.random.default_rng(0)
 
@@ -18,140 +25,102 @@ class TestCountEndCoords(ut.TestCase):
         end5s = np.array([], dtype=int)
         end3s = np.array([], dtype=int)
         result = count_end_coords(end5s, end3s)
+        expect = pd.Series(np.array([], dtype=int),
+                           pd.MultiIndex.from_arrays([np.array([], dtype=int),
+                                                      np.array([], dtype=int)],
+                                                     names=[END5_COORD,
+                                                            END3_COORD]))
         self.assertIsInstance(result, pd.Series)
-        self.assertEqual(result.size, 0)
-        self.assertIsInstance(result.index, pd.MultiIndex)
-        self.assertEqual(result.index.names, [END5_COORD, END3_COORD])
-        self.assertTrue(np.array_equal(
-            result.index.get_level_values(END5_COORD),
-            np.array([], dtype=int)
-        ))
-        self.assertTrue(np.array_equal(
-            result.index.get_level_values(END3_COORD),
-            np.array([], dtype=int)
-        ))
-        self.assertTrue(np.array_equal(
-            result.values,
-            np.array([])
-        ))
+        self.assertTrue(result.equals(expect))
 
     def test_length_1(self):
-        end5s = np.array([4], dtype=int)
-        end3s = np.array([6], dtype=int)
+        end5s = np.array([4])
+        end3s = np.array([6])
         result = count_end_coords(end5s, end3s)
+        expect = pd.Series(np.array([1]),
+                           pd.MultiIndex.from_arrays([np.array([4]),
+                                                      np.array([6])],
+                                                     names=[END5_COORD,
+                                                            END3_COORD]))
         self.assertIsInstance(result, pd.Series)
-        self.assertEqual(result.size, 1)
-        self.assertIsInstance(result.index, pd.MultiIndex)
-        self.assertEqual(result.index.names, [END5_COORD, END3_COORD])
-        self.assertTrue(np.array_equal(
-            result.index.get_level_values(END5_COORD),
-            np.array([4])
-        ))
-        self.assertTrue(np.array_equal(
-            result.index.get_level_values(END3_COORD),
-            np.array([6])
-        ))
-        self.assertTrue(np.array_equal(
-            result.values,
-            np.array([1])
-        ))
+        self.assertTrue(result.equals(expect))
 
     def test_length_2_diff(self):
-        end5s = np.array([4, 1], dtype=int)
-        end3s = np.array([6, 8], dtype=int)
+        end5s = np.array([4, 1])
+        end3s = np.array([6, 8])
         result = count_end_coords(end5s, end3s)
+        expect = pd.Series(np.array([1, 1]),
+                           pd.MultiIndex.from_arrays([np.array([1, 4]),
+                                                      np.array([8, 6])],
+                                                     names=[END5_COORD,
+                                                            END3_COORD]))
         self.assertIsInstance(result, pd.Series)
-        self.assertEqual(result.size, 2)
-        self.assertIsInstance(result.index, pd.MultiIndex)
-        self.assertEqual(result.index.names, [END5_COORD, END3_COORD])
-        self.assertTrue(np.array_equal(
-            result.index.get_level_values(END5_COORD),
-            np.array([1, 4])
-        ))
-        self.assertTrue(np.array_equal(
-            result.index.get_level_values(END3_COORD),
-            np.array([8, 6])
-        ))
-        self.assertTrue(np.array_equal(
-            result.values,
-            np.array([1, 1])
-        ))
+        self.assertTrue(result.equals(expect))
 
     def test_length_2_same(self):
-        end5s = np.array([4, 4], dtype=int)
-        end3s = np.array([6, 6], dtype=int)
+        end5s = np.array([4, 4])
+        end3s = np.array([6, 6])
         result = count_end_coords(end5s, end3s)
+        expect = pd.Series(np.array([2]),
+                           pd.MultiIndex.from_arrays([np.array([4]),
+                                                      np.array([6])],
+                                                     names=[END5_COORD,
+                                                            END3_COORD]))
         self.assertIsInstance(result, pd.Series)
-        self.assertEqual(result.size, 1)
-        self.assertIsInstance(result.index, pd.MultiIndex)
-        self.assertEqual(result.index.names, [END5_COORD, END3_COORD])
-        self.assertTrue(np.array_equal(
-            result.index.get_level_values(END5_COORD),
-            np.array([4])
-        ))
-        self.assertTrue(np.array_equal(
-            result.index.get_level_values(END3_COORD),
-            np.array([6])
-        ))
-        self.assertTrue(np.array_equal(
-            result.values,
-            np.array([2])
-        ))
+        self.assertTrue(result.equals(expect))
 
     def test_length_3_diff_weights(self):
-        end5s = np.array([4, 1, 0], dtype=int)
-        end3s = np.array([6, 8, 3], dtype=int)
+        end5s = np.array([4, 1, 0])
+        end3s = np.array([6, 8, 3])
         weights = pd.DataFrame(np.array([[2., 3.],
                                          [4., 5.],
                                          [6., 7.]]),
                                columns=["a", "b"])
         result = count_end_coords(end5s, end3s, weights)
+        expect = pd.DataFrame(weights.values[[2, 1, 0]],
+                              pd.MultiIndex.from_arrays([np.array([0, 1, 4]),
+                                                         np.array([3, 8, 6])],
+                                                        names=[END5_COORD,
+                                                               END3_COORD]),
+                              ["a", "b"])
         self.assertIsInstance(result, pd.DataFrame)
-        self.assertEqual(result.shape, weights.shape)
-        self.assertIsInstance(result.index, pd.MultiIndex)
-        self.assertEqual(result.index.names, [END5_COORD, END3_COORD])
-        self.assertTrue(np.array_equal(
-            result.index.get_level_values(END5_COORD),
-            np.array([0, 1, 4])
-        ))
-        self.assertTrue(np.array_equal(
-            result.index.get_level_values(END3_COORD),
-            np.array([3, 8, 6])
-        ))
-        self.assertEqual(result.columns.to_list(),
-                         weights.columns.to_list())
-        self.assertTrue(np.array_equal(
-            result.values,
-            weights.values[[2, 1, 0]]
-        ))
+        self.assertTrue(result.equals(expect))
 
     def test_length_3_same_weights(self):
-        end5s = np.array([4, 1, 4], dtype=int)
-        end3s = np.array([6, 8, 6], dtype=int)
+        end5s = np.array([4, 1, 4])
+        end3s = np.array([6, 8, 6])
         weights = pd.DataFrame(np.array([[2., 3.],
                                          [4., 5.],
                                          [6., 7.]]),
                                columns=["a", "b"])
         result = count_end_coords(end5s, end3s, weights)
+        expect = pd.DataFrame(np.array([[4., 5.],
+                                        [8., 10.]]),
+                              pd.MultiIndex.from_arrays([np.array([1, 4]),
+                                                         np.array([8, 6])],
+                                                        names=[END5_COORD,
+                                                               END3_COORD]),
+                              ["a", "b"])
         self.assertIsInstance(result, pd.DataFrame)
-        self.assertEqual(result.shape, (2, 2))
-        self.assertIsInstance(result.index, pd.MultiIndex)
-        self.assertEqual(result.index.names, [END5_COORD, END3_COORD])
-        self.assertTrue(np.array_equal(
-            result.index.get_level_values(END5_COORD),
-            np.array([1, 4])
-        ))
-        self.assertTrue(np.array_equal(
-            result.index.get_level_values(END3_COORD),
-            np.array([8, 6])
-        ))
-        self.assertEqual(result.columns.to_list(),
-                         weights.columns.to_list())
-        self.assertTrue(np.array_equal(
-            result.values,
-            np.array([[4., 5.],
-                      [8., 10.]])
-        ))
+        self.assertTrue(result.equals(expect))
+
+    def test_length_3_same_weights_int(self):
+        end5s = np.array([4, 1, 4])
+        end3s = np.array([6, 8, 6])
+        weights = pd.DataFrame(np.array([[2, 3],
+                                         [4, 5],
+                                         [6, 7]]),
+                               columns=["a", "b"])
+        result = count_end_coords(end5s, end3s, weights)
+        expect = pd.DataFrame(np.array([[4, 5],
+                                        [8, 10]]),
+                              pd.MultiIndex.from_arrays([np.array([1, 4]),
+                                                         np.array([8, 6])],
+                                                        names=[END5_COORD,
+                                                               END3_COORD]),
+                              ["a", "b"])
+        self.assertIsInstance(result, pd.DataFrame)
+        self.assertTrue(result.equals(expect))
 
 
 class TestCalcUniqReadWeights(ut.TestCase):
@@ -769,32 +738,472 @@ class TestCalcCoverage(ut.TestCase):
                                                   read_weights)
         self.assertIsInstance(res_per_pos, pd.DataFrame)
         self.assertTrue(res_per_pos.round(6).equals(exp_per_pos.round(6)))
-        self.assertEqual(sorted(res_per_read), sorted(exp_per_read))
+        self.assertListEqual(sorted(res_per_read), sorted(exp_per_read))
         for base in exp_per_read:
             self.assertIsInstance(res_per_read[base], pd.Series)
             self.assertTrue(res_per_read[base].equals(exp_per_read[base]))
 
 
+class TestCalcRelsPerPos(ut.TestCase):
+
+    def test_average(self):
+        """
+              11  13  14  15
+        Read   A   C   G   T
+        --------------------
+           0   1  64   1 255
+           1 255 255   1 255
+           5 128   1   1  16
+           6 255   1   1  17
+           7   1  64   1 255
+           9 128   1   1   1
+          10   1   1   1 255
+          11   1   1   1   1
+          14  64   3   1   1
+          16 255 255   1   1
+        """
+        positions = seq_pos_to_index(DNA("ANCGT"), [11, 13, 14, 15], 11)
+        mutations = {11: {64: np.array([14]),
+                          128: np.array([5, 9])},
+                     13: {3: np.array([14]),
+                          64: np.array([0, 7])},
+                     14: {},
+                     15: {16: np.array([5]),
+                          17: np.array([6])}}
+        num_reads = 10
+        cover_per_pos = pd.Series([7, 8, 10, 6], positions)
+        expect = {1: [4, 5, 10, 4],
+                  3: [0, 1, 0, 0],
+                  16: [0, 0, 0, 1],
+                  17: [0, 0, 0, 1],
+                  64: [1, 2, 0, 0],
+                  128: [2, 0, 0, 0],
+                  255: [3, 2, 0, 4]}
+        rels_per_pos = calc_rels_per_pos(mutations,
+                                         num_reads,
+                                         cover_per_pos)
+        self.assertIsInstance(rels_per_pos, dict)
+        self.assertSetEqual(set(rels_per_pos), set(expect))
+        for rel, rexp in expect.items():
+            rres = rels_per_pos[rel]
+            self.assertIsInstance(rres, pd.Series)
+            self.assertTrue(rres.equals(pd.Series(rexp, positions)))
+
+    def test_clusters(self):
+        """
+              11  13  14  15
+        Read   A   C   G   T
+        --------------------
+           0   1  64   1 255
+           1 255 255   1 255
+           5 128   1   1  16
+           6 255   1   1  17
+           7   1  64   1 255
+           9 128   1   1   1
+          10   1   1   1 255
+          11   1   1   1   1
+          14  64   3   1   1
+          16 255 255   1   1
+        """
+        positions = seq_pos_to_index(DNA("ANCGT"), [11, 13, 14, 15], 11)
+        mutations = {11: {64: np.array([14]),
+                          128: np.array([5, 9])},
+                     13: {3: np.array([14]),
+                          64: np.array([0, 7])},
+                     14: {},
+                     15: {16: np.array([5]),
+                          17: np.array([6])}}
+        cover_per_pos = pd.DataFrame([[3.9, 3.1],
+                                      [4.3, 3.7],
+                                      [5.5, 4.5],
+                                      [4.0, 2.0]],
+                                     positions,
+                                     ["a", "b"])
+        read_nums = np.array([0, 1, 5, 6, 7, 9, 10, 11, 14, 16])
+        read_indexes = calc_inverse(read_nums)
+        read_weights = pd.DataFrame([[0.1, 0.9],
+                                     [0.2, 0.8],
+                                     [0.3, 0.7],
+                                     [0.4, 0.6],
+                                     [0.5, 0.5],
+                                     [0.6, 0.4],
+                                     [0.7, 0.3],
+                                     [0.8, 0.2],
+                                     [0.9, 0.1],
+                                     [1.0, 0.0]],
+                                    index=read_nums,
+                                    columns=["a", "b"])
+        num_reads = read_weights.sum(axis=0)
+        expect = {1: [[2.1, 2.8, 5.5, 3.3],
+                      [1.9, 2.2, 4.5, 0.7]],
+                  3: [[0.0, 0.9, 0.0, 0.0],
+                      [0.0, 0.1, 0.0, 0.0]],
+                  16: [[0.0, 0.0, 0.0, 0.3],
+                       [0.0, 0.0, 0.0, 0.7]],
+                  17: [[0.0, 0.0, 0.0, 0.4],
+                       [0.0, 0.0, 0.0, 0.6]],
+                  64: [[0.9, 0.6, 0.0, 0.0],
+                       [0.1, 1.4, 0.0, 0.0]],
+                  128: [[0.9, 0.0, 0.0, 0.0],
+                        [1.1, 0.0, 0.0, 0.0]],
+                  255: [[1.6, 1.2, 0.0, 1.5],
+                        [1.4, 0.8, 0.0, 2.5]]}
+        rels_per_pos = calc_rels_per_pos(mutations,
+                                         num_reads,
+                                         cover_per_pos,
+                                         read_indexes,
+                                         read_weights)
+        self.assertIsInstance(rels_per_pos, dict)
+        self.assertSetEqual(set(rels_per_pos), set(expect))
+        for rel, rexp in expect.items():
+            rres = rels_per_pos[rel]
+            self.assertIsInstance(rres, pd.DataFrame)
+            self.assertTrue(rres.equals(
+                pd.DataFrame(rexp, ["a", "b"], positions).T
+            ))
+
+
+class TestCalcRelsPerRead(ut.TestCase):
+
+    def test_average(self):
+        """
+              11  13  14  15  17
+        Read   A   C   G   T   C
+        ------------------------
+           0   1  64   1 255 255
+           1 255 255   1 255 255
+           5 128   1   1  16   1
+           6 255   1   1  17  64
+           7   1  64   1 255 255
+           9 128   1   1   1  16
+          10   1   1   1 255 255
+          11   1   1   1   1   1
+          14  64   3   1   1 128
+          16 255 255   1   1   2
+        """
+        positions = seq_pos_to_index(DNA("ANCGTNC"), [11, 13, 14, 15, 17], 11)
+        mutations = {11: {64: np.array([14]),
+                          128: np.array([5, 9])},
+                     13: {3: np.array([14]),
+                          64: np.array([0, 7])},
+                     14: {},
+                     15: {16: np.array([5]),
+                          17: np.array([6])},
+                     17: {2: np.array([16]),
+                          16: np.array([9]),
+                          64: np.array([6]),
+                          128: np.array([14])}}
+        read_nums = np.array([0, 1, 5, 6, 7, 9, 10, 11, 14, 16])
+        read_indexes = calc_inverse(read_nums)
+        cover_per_read = pd.DataFrame.from_dict({
+            "A": pd.Series([1, 0, 1, 0, 1, 1, 1, 1, 1, 0], read_nums),
+            "C": pd.Series([1, 0, 2, 2, 1, 2, 1, 2, 2, 1], read_nums),
+            "G": pd.Series([1, 1, 1, 1, 1, 1, 1, 1, 1, 1], read_nums),
+            "T": pd.Series([0, 0, 1, 1, 0, 1, 0, 1, 1, 1], read_nums),
+        })
+        expect = {1: [[1, 0, 1, 0],
+                      [0, 0, 1, 0],
+                      [0, 2, 1, 0],
+                      [0, 1, 1, 0],
+                      [1, 0, 1, 0],
+                      [0, 1, 1, 1],
+                      [1, 1, 1, 0],
+                      [1, 2, 1, 1],
+                      [0, 0, 1, 1],
+                      [0, 0, 1, 1]],
+                  2: [[0, 0, 0, 0],
+                      [0, 0, 0, 0],
+                      [0, 0, 0, 0],
+                      [0, 0, 0, 0],
+                      [0, 0, 0, 0],
+                      [0, 0, 0, 0],
+                      [0, 0, 0, 0],
+                      [0, 0, 0, 0],
+                      [0, 0, 0, 0],
+                      [0, 1, 0, 0]],
+                  3: [[0, 0, 0, 0],
+                      [0, 0, 0, 0],
+                      [0, 0, 0, 0],
+                      [0, 0, 0, 0],
+                      [0, 0, 0, 0],
+                      [0, 0, 0, 0],
+                      [0, 0, 0, 0],
+                      [0, 0, 0, 0],
+                      [0, 1, 0, 0],
+                      [0, 0, 0, 0]],
+                  16: [[0, 0, 0, 0],
+                       [0, 0, 0, 0],
+                       [0, 0, 0, 1],
+                       [0, 0, 0, 0],
+                       [0, 0, 0, 0],
+                       [0, 1, 0, 0],
+                       [0, 0, 0, 0],
+                       [0, 0, 0, 0],
+                       [0, 0, 0, 0],
+                       [0, 0, 0, 0]],
+                  17: [[0, 0, 0, 0],
+                       [0, 0, 0, 0],
+                       [0, 0, 0, 0],
+                       [0, 0, 0, 1],
+                       [0, 0, 0, 0],
+                       [0, 0, 0, 0],
+                       [0, 0, 0, 0],
+                       [0, 0, 0, 0],
+                       [0, 0, 0, 0],
+                       [0, 0, 0, 0]],
+                  64: [[0, 1, 0, 0],
+                       [0, 0, 0, 0],
+                       [0, 0, 0, 0],
+                       [0, 1, 0, 0],
+                       [0, 1, 0, 0],
+                       [0, 0, 0, 0],
+                       [0, 0, 0, 0],
+                       [0, 0, 0, 0],
+                       [1, 0, 0, 0],
+                       [0, 0, 0, 0]],
+                  128: [[0, 0, 0, 0],
+                        [0, 0, 0, 0],
+                        [1, 0, 0, 0],
+                        [0, 0, 0, 0],
+                        [0, 0, 0, 0],
+                        [1, 0, 0, 0],
+                        [0, 0, 0, 0],
+                        [0, 0, 0, 0],
+                        [0, 1, 0, 0],
+                        [0, 0, 0, 0]],
+                  255: [[0, 1, 0, 1],
+                        [1, 2, 0, 1],
+                        [0, 0, 0, 0],
+                        [1, 0, 0, 0],
+                        [0, 1, 0, 1],
+                        [0, 0, 0, 0],
+                        [0, 1, 0, 1],
+                        [0, 0, 0, 0],
+                        [0, 0, 0, 0],
+                        [1, 1, 0, 0]]}
+        rels_per_read = calc_rels_per_read(mutations,
+                                           positions,
+                                           cover_per_read,
+                                           read_indexes)
+        self.assertIsInstance(rels_per_read, dict)
+        self.assertSetEqual(set(rels_per_read), set(expect))
+        for rel, rexp in expect.items():
+            rres = rels_per_read[rel]
+            self.assertIsInstance(rres, pd.DataFrame)
+            self.assertTrue(rres.equals(
+                pd.DataFrame(rexp, read_nums, ["A", "C", "G", "T"])
+            ))
+
+
+class TestCalcCountPerPos(ut.TestCase):
+
+    def test_average(self):
+        """
+              11  13  14  15
+        Read   A   C   G   T
+        --------------------
+           0   1  64   1 255
+           1 255 255   1 255
+           5 128   1   1  16
+           6 255   1   1  17
+           7   1  64   1 255
+           9 128   1   1   1
+          10   1   1   1 255
+          11   1   1   1   1
+          14  64   3   1   1
+          16 255 255   1   1
+        """
+        positions = seq_pos_to_index(DNA("ANCGT"), [11, 13, 14, 15], 11)
+        mutations = {11: {64: np.array([14]),
+                          128: np.array([5, 9])},
+                     13: {3: np.array([14]),
+                          64: np.array([0, 7])},
+                     14: {},
+                     15: {16: np.array([5]),
+                          17: np.array([6])}}
+        num_reads = 10
+        cover_per_pos = pd.Series([7, 8, 10, 6], positions)
+        rels_per_pos = calc_rels_per_pos(mutations,
+                                         num_reads,
+                                         cover_per_pos)
+        pattern = RelPattern.muts()
+        iexp = pd.Series([7, 7, 10, 5], positions)
+        fexp = pd.Series([3, 2, 0, 1], positions)
+        info, fits = calc_count_per_pos(pattern, cover_per_pos, rels_per_pos)
+        self.assertIsInstance(info, pd.Series)
+        self.assertTrue(info.equals(iexp))
+        self.assertIsInstance(fits, pd.Series)
+        self.assertTrue(fits.equals(fexp))
+        pattern = RelPattern.muts().invert()
+        iexp = pd.Series([7, 7, 10, 5], positions)
+        fexp = pd.Series([4, 5, 10, 4], positions)
+        info, fits = calc_count_per_pos(pattern, cover_per_pos, rels_per_pos)
+        self.assertIsInstance(info, pd.Series)
+        self.assertTrue(info.equals(iexp))
+        self.assertIsInstance(fits, pd.Series)
+        self.assertTrue(fits.equals(fexp))
+
+    def test_clusters(self):
+        """
+              11  13  14  15
+        Read   A   C   G   T
+        --------------------
+           0   1  64   1 255
+           1 255 255   1 255
+           5 128   1   1  16
+           6 255   1   1  17
+           7   1  64   1 255
+           9 128   1   1   1
+          10   1   1   1 255
+          11   1   1   1   1
+          14  64   3   1   1
+          16 255 255   1   1
+        """
+        positions = seq_pos_to_index(DNA("ANCGT"), [11, 13, 14, 15], 11)
+        mutations = {11: {64: np.array([14]),
+                          128: np.array([5, 9])},
+                     13: {3: np.array([14]),
+                          64: np.array([0, 7])},
+                     14: {},
+                     15: {16: np.array([5]),
+                          17: np.array([6])}}
+        cover_per_pos = pd.DataFrame([[3.9, 3.1],
+                                      [4.3, 3.7],
+                                      [5.5, 4.5],
+                                      [4.0, 2.0]],
+                                     positions,
+                                     ["a", "b"])
+        read_nums = np.array([0, 1, 5, 6, 7, 9, 10, 11, 14, 16])
+        read_indexes = calc_inverse(read_nums)
+        read_weights = pd.DataFrame([[0.1, 0.9],
+                                     [0.2, 0.8],
+                                     [0.3, 0.7],
+                                     [0.4, 0.6],
+                                     [0.5, 0.5],
+                                     [0.6, 0.4],
+                                     [0.7, 0.3],
+                                     [0.8, 0.2],
+                                     [0.9, 0.1],
+                                     [1.0, 0.0]],
+                                    index=read_nums,
+                                    columns=["a", "b"])
+        num_reads = read_weights.sum(axis=0)
+        rels_per_pos = calc_rels_per_pos(mutations,
+                                         num_reads,
+                                         cover_per_pos,
+                                         read_indexes,
+                                         read_weights)
+        pattern = RelPattern.muts()
+        iexp = pd.DataFrame([[3.9, 3.1],
+                             [3.4, 3.6],
+                             [5.5, 4.5],
+                             [3.6, 1.4]],
+                            positions,
+                            ["a", "b"])
+        fexp = pd.DataFrame([[1.8, 1.2],
+                             [0.6, 1.4],
+                             [0.0, 0.0],
+                             [0.3, 0.7]],
+                            positions,
+                            ["a", "b"])
+        info, fits = calc_count_per_pos(pattern, cover_per_pos, rels_per_pos)
+        self.assertIsInstance(info, pd.DataFrame)
+        self.assertTrue(info.index.equals(iexp.index))
+        self.assertTrue(info.columns.equals(iexp.columns))
+        self.assertTrue(np.all(np.isclose(info.values, iexp.values)))
+        self.assertIsInstance(fits, pd.DataFrame)
+        self.assertTrue(fits.index.equals(fexp.index))
+        self.assertTrue(fits.columns.equals(fexp.columns))
+        self.assertTrue(np.all(np.isclose(fits.values, fexp.values)))
+        pattern = RelPattern.muts().invert()
+        iexp = pd.DataFrame([[3.9, 3.1],
+                             [3.4, 3.6],
+                             [5.5, 4.5],
+                             [3.6, 1.4]],
+                            positions,
+                            ["a", "b"])
+        fexp = pd.DataFrame([[2.1, 1.9],
+                             [2.8, 2.2],
+                             [5.5, 4.5],
+                             [3.3, 0.7]],
+                            positions,
+                            ["a", "b"])
+        info, fits = calc_count_per_pos(pattern, cover_per_pos, rels_per_pos)
+        self.assertIsInstance(info, pd.DataFrame)
+        self.assertTrue(info.index.equals(iexp.index))
+        self.assertTrue(info.columns.equals(iexp.columns))
+        self.assertTrue(np.all(np.isclose(info.values, iexp.values)))
+        self.assertIsInstance(fits, pd.DataFrame)
+        self.assertTrue(fits.index.equals(fexp.index))
+        self.assertTrue(fits.columns.equals(fexp.columns))
+        self.assertTrue(np.all(np.isclose(fits.values, fexp.values)))
+
+
+class TestCalcCountPerRead(ut.TestCase):
+
+    def test_average(self):
+        """
+              11  13  14  15  17
+        Read   A   C   G   T   C
+        ------------------------
+           0   1  64   1 255 255
+           1 255 255   1 255 255
+           5 128   1   1  16   1
+           6 255   1   1  17  64
+           7   1  64   1 255 255
+           9 128   1   1   1  16
+          10   1   1   1 255 255
+          11   1   1   1   1   1
+          14  64   3   1   1 128
+          16 255 255   1   1   2
+        """
+        positions = seq_pos_to_index(DNA("ANCGTNC"), [11, 13, 14, 15, 17], 11)
+        mutations = {11: {64: np.array([14]),
+                          128: np.array([5, 9])},
+                     13: {3: np.array([14]),
+                          64: np.array([0, 7])},
+                     14: {},
+                     15: {16: np.array([5]),
+                          17: np.array([6])},
+                     17: {2: np.array([16]),
+                          16: np.array([9]),
+                          64: np.array([6]),
+                          128: np.array([14])}}
+        read_nums = np.array([0, 1, 5, 6, 7, 9, 10, 11, 14, 16])
+        read_indexes = calc_inverse(read_nums)
+        cover_per_read = pd.DataFrame.from_dict({
+            "A": pd.Series([1, 0, 1, 0, 1, 1, 1, 1, 1, 0], read_nums),
+            "C": pd.Series([1, 0, 2, 2, 1, 2, 1, 2, 2, 1], read_nums),
+            "G": pd.Series([1, 1, 1, 1, 1, 1, 1, 1, 1, 1], read_nums),
+            "T": pd.Series([0, 0, 1, 1, 0, 1, 0, 1, 1, 1], read_nums),
+        })
+        rels_per_read = calc_rels_per_read(mutations,
+                                           positions,
+                                           cover_per_read,
+                                           read_indexes)
+        pattern = RelPattern.muts()
+        iexp = pd.Series([3, 1, 5, 3, 3, 5, 3, 5, 4, 3], read_nums)
+        fexp = pd.Series([1, 0, 2, 1, 1, 2, 0, 0, 2, 1], read_nums)
+        info, fits = calc_count_per_read(pattern,
+                                         cover_per_read,
+                                         rels_per_read)
+        self.assertIsInstance(info, pd.Series)
+        self.assertTrue(info.equals(iexp))
+        self.assertIsInstance(fits, pd.Series)
+        self.assertTrue(fits.equals(fexp))
+        pattern = RelPattern(HalfRelPattern.from_counts(count_sub=True,
+                                                        discount=["at", "cg"]),
+                             HalfRelPattern.refs())
+        iexp = pd.Series([2, 1, 4, 2, 2, 4, 3, 5, 4, 2], read_nums)
+        fexp = pd.Series([0, 0, 1, 0, 0, 1, 0, 0, 2, 0], read_nums)
+        info, fits = calc_count_per_read(pattern,
+                                         cover_per_read,
+                                         rels_per_read)
+        self.assertIsInstance(info, pd.Series)
+        self.assertTrue(info.equals(iexp))
+        self.assertIsInstance(fits, pd.Series)
+        self.assertTrue(fits.equals(fexp))
+
+
 if __name__ == "__main__":
     ut.main()
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

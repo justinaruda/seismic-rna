@@ -15,24 +15,41 @@ POSITIONS = "positions"
 READS = "reads"
 CLUSTERS = "clusters"
 SEGMENTS = "segments"
+PRECISION = 3
+
+
+def _count_end_coords(end5s: np.ndarray,
+                      end3s: np.ndarray):
+    """ Count each pair of 5' and 3' end coordinates. """
+    uniq_ends, counts = np.unique(merge_read_ends(end5s, end3s),
+                                  return_counts=True,
+                                  axis=0)
+    return pd.Series(counts,
+                     pd.MultiIndex.from_arrays(uniq_ends.T, names=END_COORDS))
+
+
+def _count_end_coords_weights(end5s: np.ndarray,
+                              end3s: np.ndarray,
+                              weights: pd.DataFrame):
+    """ Count each pair of 5' and 3' end coordinates, with weights. """
+    # Make a MultiIndex of all 5' and 3' coordinates.
+    index = pd.MultiIndex.from_frame(pd.DataFrame(merge_read_ends(end5s,
+                                                                  end3s),
+                                                  columns=END_COORDS,
+                                                  copy=False))
+    # Convert the read weights into a DataFrame with that index.
+    weights = pd.DataFrame(weights.values, index, weights.columns)
+    # Sum the weights for each unique pair of 5'/3' coordinates.
+    return weights.groupby(level=list(range(weights.index.nlevels))).sum()
 
 
 def count_end_coords(end5s: np.ndarray,
                      end3s: np.ndarray,
                      weights: pd.DataFrame | None = None):
     """ Count each pair of 5' and 3' end coordinates. """
-    # Make a MultiIndex of all 5' and 3' coordinates.
-    index = pd.MultiIndex.from_frame(pd.DataFrame(merge_read_ends(end5s,
-                                                                  end3s),
-                                                  columns=END_COORDS,
-                                                  copy=False))
-    # Convert the read weights into a Series/DataFrame with that index.
     if weights is not None:
-        weights = pd.DataFrame(weights.values, index, weights.columns)
-    else:
-        weights = pd.Series(1., index)
-    # Sum the weights for each unique pair of 5'/3' coordinates.
-    return weights.groupby(level=list(range(weights.index.nlevels))).sum()
+        return _count_end_coords_weights(end5s, end3s, weights)
+    return _count_end_coords(end5s, end3s)
 
 
 @jit()
@@ -126,13 +143,12 @@ def calc_coverage(pos_index: pd.Index,
                                                  for base in DNA.alph()})
         return cover_per_pos, cover_per_read
     if positions.size > 1 and np.diff(positions).min() <= 0:
-        raise ValueError(
-            f"positions must increase monotonically, but got {positions}"
-        )
+        raise ValueError("positions must increase monotonically, "
+                         f"but got {positions}")
     min_pos = positions[0]
     max_pos = positions[-1]
     # Validate the dimensions.
-    dims = [(POSITIONS,), (READS,), (READS, SEGMENTS), (READS, SEGMENTS)]
+    dim_names = [(POSITIONS,), (READS,), (READS, SEGMENTS), (READS, SEGMENTS)]
     arrays = [positions, read_nums, seg_end5s, seg_end3s]
     names = ["positions", "read_nums", "seg_end5s", "seg_end3s"]
     if read_weights is not None:
@@ -140,26 +156,17 @@ def calc_coverage(pos_index: pd.Index,
             raise TypeError("If given, read_weights must be DataFrame, "
                             f"but got {type(read_weights).__name__}")
         read_weights = read_weights.loc[read_nums]
-        dims.append((READS, CLUSTERS))
+        dim_names.append((READS, CLUSTERS))
         arrays.append(read_weights.values)
         names.append("read_weights")
-    find_dims(dims, arrays, names)
+    dims = find_dims(dim_names, arrays, names)
+    n_reads = dims[READS]
     # Clip the end coordinates to the minimum and maximum positions.
     # Sort the end coordinates and label the 3' ends.
     ends, _, is_end3 = sort_segment_ends(seg_end5s.clip(min_pos, max_pos + 1),
                                          seg_end3s.clip(min_pos - 1, max_pos),
                                          zero_indexed=True,
                                          fill_mask=True)
-    # Find the unique end coordinates, to speed up the calculation when
-    # many reads have identical end coordinates (e.g. for amplicons).
-    (uniq_ends,
-     uniq_index,
-     uniq_inverse,
-     uniq_counts) = np.unique(ends,
-                              return_index=True,
-                              return_inverse=True,
-                              return_counts=True,
-                              axis=0)
     # Find the cumulative count of each base up to each position.
     bases = list()
     base_count = list()
@@ -169,17 +176,14 @@ def calc_coverage(pos_index: pd.Index,
         is_base[base_pos.get_level_values(POS_NAME)] = True
         base_count.append(np.cumsum(is_base))
     base_count = np.stack(base_count, axis=1)
-    # Find the weight of each unique read.
-    uniq_weights = (_calc_uniq_read_weights(read_weights.values,
-                                            uniq_inverse,
-                                            get_length(uniq_counts))
-                    if read_weights is not None
-                    else uniq_counts[:, np.newaxis])
     # Compute the coverage per position and per read.
-    cover_per_pos, cover_per_read = _calc_coverage(uniq_ends,
-                                                   is_end3[uniq_index],
-                                                   uniq_weights,
+    cover_per_pos, cover_per_read = _calc_coverage(ends,
+                                                   is_end3,
+                                                   (read_weights.values
+                                                    if read_weights is not None
+                                                    else np.ones((n_reads, 1))),
                                                    base_count)
+    cover_per_pos = cover_per_pos.round(PRECISION)
     # Reformat the coverage into pandas objects.
     cover_per_pos = cover_per_pos[positions - 1]
     if read_weights is not None:
@@ -190,7 +194,7 @@ def calc_coverage(pos_index: pd.Index,
         cover_per_pos = pd.Series(cover_per_pos.reshape(positions.size),
                                   index=pos_index)
     cover_per_read = pd.DataFrame.from_dict(
-        {base: pd.Series((cover_per_read[uniq_inverse, bases.index(base)]
+        {base: pd.Series((cover_per_read[:, bases.index(base)]
                           if base in bases
                           else 0),
                          index=read_nums)
@@ -255,6 +259,7 @@ def calc_rels_per_pos(mutations: dict[int, dict[int, np.ndarray]],
             if read_weights is not None:
                 rows = read_indexes[reads]
                 num_reads_pos_mut = read_weights.values[rows].sum(axis=0)
+                num_reads_pos_mut = num_reads_pos_mut.round(PRECISION)
             else:
                 num_reads_pos_mut = get_length(reads, "read numbers")
             num_reads_pos += num_reads_pos_mut
@@ -262,18 +267,21 @@ def calc_rels_per_pos(mutations: dict[int, dict[int, np.ndarray]],
         # The number of matches is the coverage minus the number of
         # reads with another kind of relationship that is not the
         # no-coverage relationship (no coverage is counted later).
-        num_match = cover_per_pos.loc[pos_base] - num_reads_pos
-        if np.atleast_1d(num_match)[0] < 0:
+        counts[MATCH].loc[pos_base] = (cover_per_pos.loc[pos_base]
+                                       - num_reads_pos).round(PRECISION)
+        if np.atleast_1d(counts[MATCH].loc[pos_base]).min(initial=0) < 0:
             raise ValueError("Number of matches must be ≥ 0, "
-                             f"but got {num_match} at position {pos}")
-        counts[MATCH].loc[pos_base] = num_match
+                             f"but got {counts[MATCH].loc[pos_base]} "
+                             f"at position {pos}")
         # The number of non-covered positions is the number of reads
         # minus the number that cover the position.
-        num_nocov = num_reads - cover_per_pos.loc[pos_base]
-        if np.atleast_1d(num_nocov)[0] < 0:
+        counts[NOCOV].loc[pos_base] = (
+                num_reads - cover_per_pos.loc[pos_base]
+        ).round(PRECISION)
+        if np.atleast_1d(counts[NOCOV].loc[pos_base]).min(initial=0) < 0:
             raise ValueError("Number of non-covered positions must be ≥ 0, "
-                             f"but got {num_nocov} at position {pos}")
-        counts[NOCOV].loc[pos_base] = num_nocov
+                             f"but got {counts[NOCOV].loc[pos_base]} "
+                             f"at position {pos}")
     return dict(counts)
 
 
@@ -282,22 +290,25 @@ def calc_rels_per_read(mutations: dict[int, dict[int, np.ndarray]],
                        cover_per_read: pd.DataFrame,
                        read_indexes: np.ndarray):
     """ For each relationship, the number of positions in each read. """
-    bases = list(cover_per_read.columns)
     counts = defaultdict(partial(pd.DataFrame,
                                  0,
                                  index=cover_per_read.index,
                                  columns=cover_per_read.columns))
     counts[NOCOV] = count_base_types(pos_index) - cover_per_read
-    counts[MATCH] = cover_per_read.copy()
+    match = cover_per_read.copy()
+    counts[MATCH] = match
     for pos, base in pos_index:
-        column = bases.index(base)
         for mut, reads in mutations[pos].items():
-            rows = read_indexes[reads]
-            counts[MATCH].values[rows, column] -= 1
-            if counts[MATCH].values[rows, column].min(initial=0) < 0:
-                raise ValueError("Number of matches must be ≥ 0, but got "
-                                 f"{counts[MATCH].values[rows, column]}")
-            counts[mut].values[rows, column] += 1
+            if reads.size > 0:
+                rows = read_indexes[reads]
+                match[base].values[rows] -= 1
+                counts[mut][base].values[rows] += 1
+    errors = [(f"Number of matches for base {repr(base)} must be ≥ 0 "
+               f"for every read, but got\n{values[values < 0]}")
+              for base, values in match.items()
+              if values.min() < 0]
+    if errors:
+        raise ValueError("\n".join(errors))
     return dict(counts)
 
 
@@ -344,51 +355,17 @@ def calc_count_per_pos(pattern: RelPattern,
 
 def calc_count_per_read(pattern: RelPattern,
                         cover_per_read: pd.DataFrame,
-                        rels_per_read: dict[int, pd.DataFrame],
-                        read_weights: pd.DataFrame | None = None):
+                        rels_per_read: dict[int, pd.DataFrame]):
     """ Count the positions that fit a pattern in each read. """
     read_nums = cover_per_read.index
-    if read_weights is not None:
-        zero = 0.
-        array_type = pd.DataFrame
-        array_indexes = dict(index=read_nums, columns=read_weights.columns)
-    else:
-        zero = 0
-        array_type = pd.Series
-        array_indexes = dict(index=read_nums)
-    info = array_type(zero, **array_indexes)
-    fits = array_type(zero, **array_indexes)
+    info = pd.Series(0, index=read_nums)
+    fits = pd.Series(0, index=read_nums)
     for rel, rel_counts in rels_per_read.items():
         for base, base_counts in rel_counts.items():
             is_info, is_fits = pattern.fits(str(base), rel)
             if is_info:
-                if read_weights is not None:
-                    read_counts = (read_weights.values
-                                   * base_counts.values[:, np.newaxis])
-                else:
-                    read_counts = base_counts.values
+                read_counts = base_counts.values
                 info += read_counts
                 if is_fits:
                     fits += read_counts
     return info, fits
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

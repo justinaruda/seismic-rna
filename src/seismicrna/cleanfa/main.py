@@ -1,12 +1,5 @@
-"""
-
-FASTA Cleaning Module
-========================================================================
-
-
-"""
-
-from logging import getLogger
+from pathlib import Path
+from typing import Iterable
 
 from click import command
 
@@ -17,21 +10,17 @@ from ..core.arg import (CMD_CLEANFA,
                         opt_inplace,
                         opt_out_dir,
                         opt_force,
-                        opt_max_procs,
-                        opt_parallel)
+                        opt_max_procs)
 from ..core.run import run_func
-from ..core.task import dispatch
-
-logger = getLogger(__name__)
+from ..core.task import dispatch, as_list_of_tuples
 
 
-@run_func(logger.critical)
-def run(input_path: tuple[str, ...], *,
+@run_func(CMD_CLEANFA)
+def run(input_path: Iterable[str | Path], *,
         inplace: bool,
-        out_dir: str,
+        out_dir: str | Path,
         force: bool,
-        max_procs: int,
-        parallel: bool):
+        max_procs: int):
     """ Clean the names and sequences in FASTA files. """
     # List all the files to clean.
     input_files = list(path.find_files_chain(input_path, [path.FastaSeg]))
@@ -45,11 +34,10 @@ def run(input_path: tuple[str, ...], *,
         out_dir.mkdir(parents=True, exist_ok=True)
         output_files = path.transpaths(out_dir, *input_files, strict=True)
     # Generate the positional arguments for clean_fasta.
-    args = list(zip(input_files, output_files, strict=True))
+    args = as_list_of_tuples(zip(input_files, output_files, strict=True))
     # Clean the files; if modifying in-place, force must be True.
     return dispatch(clean_fasta,
                     max_procs,
-                    parallel,
                     args=args,
                     kwargs=dict(force=force or inplace),
                     pass_n_procs=False)
@@ -61,7 +49,6 @@ params = [
     opt_out_dir,
     opt_force,
     opt_max_procs,
-    opt_parallel
 ]
 
 
@@ -69,24 +56,3 @@ params = [
 def cli(*args, **kwargs):
     """ Clean the names and sequences in FASTA files. """
     return run(*args, **kwargs)
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

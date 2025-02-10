@@ -1,11 +1,10 @@
-from logging import getLogger
 from typing import Generator, Iterable
 
 import pandas as pd
 
-from ..seq import FIELD_END5, FIELD_END3, POS_NAME, Section
+from ..logs import logger
+from ..seq import FIELD_END5, FIELD_END3, POS_NAME, Region
 
-logger = getLogger(__name__)
 
 UNPAIRED = 0
 
@@ -54,18 +53,18 @@ def dict_to_pairs(pair_dict: dict[int, int]):
             yield a, b
 
 
-def pairs_to_table(pairs: Iterable[tuple[int, int]], section: Section):
-    """ Series of every position in the section and the base to which it
+def pairs_to_table(pairs: Iterable[tuple[int, int]], region: Region):
+    """ Series of every position in the region and the base to which it
     pairs, or 0 if it does not pair. """
-    table = pd.Series(UNPAIRED, index=section.range)
-    seq = str(section.seq)
+    table = pd.Series(UNPAIRED, index=region.range)
+    seq = str(region.seq)
 
     def add_pair(a: int, b: int):
         """ Add a base pair at position `a` to position `b`. """
-        if not section.end5 <= a <= section.end3:
-            raise ValueError(f"Position {a} is not in {section}")
+        if not region.end5 <= a <= region.end3:
+            raise ValueError(f"Position {a} is not in {region}")
         # Find the current pairing partner at this position.
-        index = a, seq[a - section.end5]
+        index = a, seq[a - region.end5]
         if (b2 := table[index]) == UNPAIRED:
             # There is no pairing partner at this position: add it.
             table[index] = b
@@ -85,10 +84,10 @@ def pairs_to_table(pairs: Iterable[tuple[int, int]], section: Section):
     return table
 
 
-def dict_to_table(pair_dict: dict[int, int], section: Section):
-    """ Series of every position in the section and the base to which it
+def dict_to_table(pair_dict: dict[int, int], region: Region):
+    """ Series of every position in the region and the base to which it
     pairs, or 0 if it does not pair. """
-    return pairs_to_table(dict_to_pairs(pair_dict), section)
+    return pairs_to_table(dict_to_pairs(pair_dict), region)
 
 
 def table_to_pairs(table: pd.Series):
@@ -214,24 +213,3 @@ def find_root_pairs(pairs: Iterable[tuple[int, int]],
     """ Return all pairs which are not contained any other pair. """
     pair_dict = pairs_to_dict(pairs)
     return list(_find_root_pairs_nested(pair_dict))
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

@@ -1,14 +1,6 @@
-"""
-
-CT Renumbering Module
-========================================================================
-
-
-"""
-
 from collections import defaultdict
-from logging import getLogger
 from pathlib import Path
+from typing import Iterable
 
 from click import command
 
@@ -18,23 +10,20 @@ from ..core.arg import (CMD_RENUMCT,
                         opt_inplace,
                         opt_out_dir,
                         opt_force,
-                        opt_max_procs,
-                        opt_parallel)
+                        opt_max_procs)
+from ..core.logs import logger
 from ..core.rna import renumber_ct as renumber_ct
 from ..core.run import run_func
 from ..core.task import dispatch
 
-logger = getLogger(__name__)
 
-
-@run_func(logger.critical)
+@run_func(CMD_RENUMCT)
 def run(*,
-        ct_pos_5: tuple[tuple[str, int], ...],
+        ct_pos_5: Iterable[tuple[str, int]],
         inplace: bool,
-        out_dir: str,
+        out_dir: str | Path,
         force: bool,
-        max_procs: int,
-        parallel: bool):
+        max_procs: int):
     """ Renumber connectivity table (CT) files given a 5' position. """
     # For each start position, find all files to renumber.
     start_files = {start: list(path.find_files(Path(files),
@@ -68,7 +57,6 @@ def run(*,
     # Renumber the files; if modifying in-place, force must be True.
     return dispatch(renumber_ct,
                     max_procs,
-                    parallel,
                     args=args,
                     kwargs=dict(force=force or inplace),
                     pass_n_procs=False)
@@ -80,7 +68,6 @@ params = [
     opt_out_dir,
     opt_force,
     opt_max_procs,
-    opt_parallel
 ]
 
 
@@ -88,24 +75,3 @@ params = [
 def cli(*args, **kwargs):
     """ Renumber connectivity table (CT) files given a 5' position. """
     return run(*args, **kwargs)
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

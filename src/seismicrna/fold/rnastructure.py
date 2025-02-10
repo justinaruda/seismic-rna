@@ -1,13 +1,9 @@
-"""
-Struct -- RNAstructure Module
-
-Wrapper around RNAstructure from the Mathews Lab at U of Rochester:
+""" Wrapper around RNAstructure from the Mathews Lab at U of Rochester:
 https://rna.urmc.rochester.edu/RNAstructure.html
 """
 
 import os
 import re
-from logging import getLogger
 from pathlib import Path
 from shutil import which
 
@@ -16,11 +12,11 @@ from ..core.extern import (RNASTRUCTURE_FOLD_CMD,
                            RNASTRUCTURE_FOLD_SMP_CMD,
                            args_to_cmd,
                            run_cmd)
+from ..core.logs import logger
 from ..core.rna import RNAProfile, renumber_ct
 from ..core.write import need_write, write_mode
 
-logger = getLogger(__name__)
-
+ENERGY_UNIT = "kcal/mol"
 FOLD_SMP_NUM_THREADS = "OMP_NUM_THREADS"
 DATAPATH = "DATAPATH"
 DATAPATH_FILES = """
@@ -43,7 +39,6 @@ b-test.int22.dg
 b-test.int22.dh
 b-test.loop.dg
 b-test.miscloop.dg
-b-test.miscloop.dh
 b-test.specification.dat
 b-test.stack.dg
 b-test.stack.dh
@@ -174,26 +169,6 @@ int22.dat
 int22.dh
 loop.dat
 loop.dh
-m6A.coaxial.dg
-m6A.coaxstack.dg
-m6A.dangle.dg
-m6A.hexaloop.dg
-m6A.int11.dg
-m6A.int21.dg
-m6A.int22.dg
-m6A.loop.dg
-m6A.miscloop.dg
-m6A.specification.dat
-m6A.stack.dg
-m6A.tloop.dg
-m6A.triloop.dg
-m6A.tstack.dg
-m6A.tstackcoax.dg
-m6A.tstackh.dg
-m6A.tstacki.dg
-m6A.tstacki1n.dg
-m6A.tstacki23.dg
-m6A.tstackm.dg
 miscloop.dat
 miscloop.dh
 new_training_z_ave.scale.model
@@ -300,26 +275,28 @@ def _guess_data_path_conda():
             f"RNAstructure not seem to be installed: {RNASTRUCTURE_FOLD_CMD}"
         )
     fold_path = Path(fold_path)
-    conda_dir = fold_path.parent.parent.parent.parent
-    if conda_dir.name != "conda":
-        raise OSError(
-            f"RNAstructure not seem to be installed with Conda: {fold_path}"
-        )
-    pkgs_dir = conda_dir.joinpath("pkgs")
-    rnastructure_pkgs = list()
-    for pkg in pkgs_dir.iterdir():
-        if pkg.name.startswith("rnastructure"):
-            rnastructure_pkgs.append(pkg)
-    if not rnastructure_pkgs:
-        raise OSError(
-            f"RNAstructure not seem to be installed with Conda: {pkgs_dir}"
-        )
-    rnastructure_pkg = sorted(rnastructure_pkgs)[-1]
-    data_path = rnastructure_pkg.joinpath("share",
-                                          "rnastructure",
-                                          "data_tables")
+    env_dir = fold_path.parent.parent
+    data_path = env_dir.joinpath("share", "rnastructure", "data_tables")
+    if not data_path.is_dir():
+        raise OSError("It seems RNAstructure is not installed with Conda: "
+                      f"{data_path} does not exist")
     check_data_path(data_path)
-    logger.debug(f"Successfully guessed {DATAPATH}: {data_path}")
+    logger.detail(f"Successfully guessed {DATAPATH}: {data_path}")
+    return data_path
+
+
+def _guess_data_path_manual():
+    """ Guess the DATAPATH if RNAstructure was installed manually
+    (e.g. by downloading from the Mathews Lab website). """
+    fold_path = which(RNASTRUCTURE_FOLD_CMD)
+    if fold_path is None:
+        raise OSError(
+            f"RNAstructure not seem to be installed: {RNASTRUCTURE_FOLD_CMD}"
+        )
+    fold_path = Path(fold_path)
+    data_path = fold_path.parent.parent.joinpath("data_tables")
+    check_data_path(data_path)
+    logger.detail(f"Successfully guessed {DATAPATH}: {data_path}")
     return data_path
 
 
@@ -332,9 +309,10 @@ def guess_data_path():
         errors.append(error)
         logger.warning(f"The {DATAPATH} environment variable is not valid; "
                        f"attempting to guess it")
-    for attempt in [_guess_data_path_conda]:
+    for guess_func in [_guess_data_path_conda,
+                       _guess_data_path_manual]:
         try:
-            return attempt()
+            return guess_func()
         except OSError as error:
             errors.append(error)
     raise OSError("\n".join(f" -> {error}" for error in errors))
@@ -438,16 +416,14 @@ def fold(rna: RNAProfile, *,
         try:
             run_cmd(fold_cmds[True])
         except RuntimeError as error:
-            logger.warning(
-                f"Unable to fold using {RNASTRUCTURE_FOLD_SMP_CMD}:\n{error}"
-            )
+            logger.warning(error)
             run_cmd(fold_cmds[False])
         # Reformat the CT file title lines so that each is unique.
         retitle_ct(ct_tmp, ct_tmp, force=True)
         # Renumber the CT file so that it has the same numbering scheme
-        # as the section, rather than always starting at 1, the latter
+        # as the region, rather than always starting at 1, the latter
         # of which is always output by the Fold program.
-        renumber_ct(ct_tmp, ct_out, rna.section.end5, force=True)
+        renumber_ct(ct_tmp, ct_out, rna.region.end5, force=True)
     finally:
         if not keep_tmp:
             # Delete the temporary files.
@@ -455,8 +431,16 @@ def fold(rna: RNAProfile, *,
             dms_file.unlink(missing_ok=True)
             if ct_tmp != ct_out:
                 ct_tmp.unlink(missing_ok=True)
-    logger.info(f"Predicted structure of {rna} to {ct_out}")
+    logger.routine(f"Predicted structure of {rna} to {ct_out}")
     return ct_out
+
+
+class RNAStructureConnectivityTableTitleLineFormatError(ValueError):
+    """ Error in the format of a CT title line from RNAStructure. """
+
+
+class ConnectivityTableAlreadyRetitledError(RuntimeError):
+    """ A CT file was already retitled. """
 
 
 def parse_rnastructure_ct_title(line: str):
@@ -468,7 +452,7 @@ def parse_rnastructure_ct_title(line: str):
     the name of the reference, and {energy} is the predicted free energy
     of folding.
     Also handle the edge case when RNAstructure predicts no base pairs
-    (and thus does not write the free energy) by returning NaN.
+    (and thus does not write the free energy) by returning 0.
 
     Parameters
     ----------
@@ -485,15 +469,22 @@ def parse_rnastructure_ct_title(line: str):
     if m := re.match(r"\s*([0-9]+)\s+ENERGY = (-?[0-9.]+)\s+(\S+)", line):
         length, energy, ref = m.groups()
     else:
-        # If that failed, then parse the line assuming it does not.
-        if m := re.match(r"\s*([0-9]+)\s+(\S+)", line):
-            length, ref = m.groups()
+        # If that failed, then check if the line was already retitled.
+        try:
+            parse_energy(line)
+        except (ValueError, TypeError):
+            # The line was not retitled: parse it assuming it has no
+            # energy term (which happens if no base pairs exist).
+            if m := re.match(r"\s*([0-9]+)\s+(\S+)", line):
+                length, ref = m.groups()
+            else:
+                # The line violated the basic length-and-title format.
+                raise RNAStructureConnectivityTableTitleLineFormatError(line)
+            logger.warning("CT line contains no energy term (probably because "
+                           f"no base pairs were predicted): {repr(line)}")
+            energy = 0.
         else:
-            # The line violated the basic length-and-title format.
-            raise ValueError(f"Failed to parse CT title line: {repr(line)}")
-        logger.warning("CT line contains no energy term (probably because no "
-                       f"base pairs were predicted): {repr(line)}")
-        energy = "nan"
+            raise ConnectivityTableAlreadyRetitledError(line)
     return int(length), float(energy), ref
 
 
@@ -515,14 +506,14 @@ def format_retitled_ct_line(length: int, ref: str, uniqid: int, energy: float):
     ref: str
         Name of the reference.
     energy: float
-        Free energy of folding.
+        Free energy of folding (kcal/mol).
 
     Returns
     -------
     str
         Formatted CT title line.
     """
-    return f"{length}\t{ref} #{uniqid}: {energy}\n"
+    return f"{length}\t{ref} #{uniqid}: {energy} {ENERGY_UNIT}\n"
 
 
 def retitle_ct(ct_input: Path, ct_output: Path, force: bool = False):
@@ -569,8 +560,10 @@ def retitle_ct(ct_input: Path, ct_output: Path, force: bool = False):
         text = "".join(lines)
         with open(ct_output, write_mode(force=True)) as f:
             f.write(text)
-        logger.info(f"Retitled CT file {ct_input}"
-                    + (f" to {ct_output}" if ct_input != ct_output else ""))
+        logger.routine(f"Retitled CT file {ct_input}"
+                       + (f" to {ct_output}"
+                          if ct_input != ct_output
+                          else ""))
 
 
 def parse_energy(line: str):
@@ -592,26 +585,9 @@ def parse_energy(line: str):
     float
         Free energy of folding.
     """
-    _, energy = line.split(":")
-    return float(energy)
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################
+    _, energy = line.split(": ")
+    value, unit = energy.split()
+    if unit != ENERGY_UNIT:
+        raise ValueError(f"Expected energy to have units of {ENERGY_UNIT}, "
+                         f"but got {repr(unit)}")
+    return float(value)

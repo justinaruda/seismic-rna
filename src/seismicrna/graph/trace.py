@@ -1,17 +1,15 @@
-from logging import getLogger
-
+import numpy as np
 import pandas as pd
 from plotly import graph_objects as go
 
 from .color import ColorMap
-from .hist import COUNT_NAME, LOWER_NAME, UPPER_NAME
 from ..core.header import REL_NAME
+from ..core.rna import compute_auc
 from ..core.seq import BASE_NAME, POS_NAME, DNA
-
-logger = getLogger(__name__)
 
 # Number of digits behind the decimal point to be kept.
 PRECISION = 6
+AUC_PRECISION = 3
 
 
 def get_seq_base_scatter_trace(xdata: pd.Series,
@@ -45,7 +43,7 @@ def get_seq_base_scatter_trace(xdata: pd.Series,
                       x=vals.x,
                       y=vals.y,
                       mode="markers",
-                      marker_color=cmap[base],
+                      marker_color=cmap.get(base),
                       hovertext=hovertext,
                       hoverinfo="text")
 
@@ -73,7 +71,7 @@ def get_seq_base_bar_trace(data: pd.Series, cmap: ColorMap, base: str):
     return go.Bar(name=base,
                   x=vals.index,
                   y=vals,
-                  marker_color=cmap[base],
+                  marker_color=cmap.get(base),
                   hovertext=hovertext,
                   hoverinfo="text")
 
@@ -94,7 +92,7 @@ def get_seq_stack_bar_trace(data: pd.Series, rel: str, cmap: ColorMap):
     return go.Bar(name=rel,
                   x=pos,
                   y=data,
-                  marker_color=cmap[rel],
+                  marker_color=cmap.get(rel),
                   hovertext=hovertext,
                   hoverinfo="text")
 
@@ -106,19 +104,26 @@ def iter_seqbar_stack_traces(data: pd.DataFrame, cmap: ColorMap):
         yield get_seq_stack_bar_trace(series, rel, cmap)
 
 
+HIST_COUNT_NAME = "Count"
+HIST_LOWER_NAME = "Lower"
+HIST_UPPER_NAME = "Upper"
+
+
 def get_hist_trace(data: pd.Series, rel: str, cmap: ColorMap):
     # Get the edges of the bins.
     if isinstance(data.index, pd.MultiIndex):
-        lower = data.index.get_level_values(LOWER_NAME)
-        upper = data.index.get_level_values(UPPER_NAME)
+        lower = data.index.get_level_values(HIST_LOWER_NAME)
+        upper = data.index.get_level_values(HIST_UPPER_NAME)
         center = (lower + upper) / 2.
         hovertext = [(f"[{round(lo, PRECISION)} - {round(up, PRECISION)}] "
                       f"{rel}: {round(value, PRECISION)}")
                      for lo, up, value in zip(lower, upper, data, strict=True)]
     else:
-        if data.index.name != COUNT_NAME:
-            raise ValueError(f"Expected index to be named {repr(COUNT_NAME)}, "
-                             f"but got {repr(data.index.name)}")
+        if data.index.name != HIST_COUNT_NAME:
+            raise ValueError(
+                f"Expected index to be named {repr(HIST_COUNT_NAME)}, "
+                f"but got {repr(data.index.name)}"
+            )
         center = data.index.values
         hovertext = [f"{count} {rel}: {round(value, PRECISION)}"
                      for count, value in data.items()]
@@ -126,7 +131,7 @@ def get_hist_trace(data: pd.Series, rel: str, cmap: ColorMap):
     return go.Bar(name=rel,
                   x=center,
                   y=data,
-                  marker_color=cmap[rel],
+                  marker_color=cmap.get(rel),
                   hovertext=hovertext,
                   hoverinfo="text")
 
@@ -147,14 +152,18 @@ def iter_seq_line_traces(data: pd.Series, *_, **__):
     yield get_seq_line_trace(data)
 
 
-def _format_profile_struct(profile: str, struct: str):
-    return f"{profile}, {struct}"
+def _format_profile_struct(profile: str, struct: str, auc: float | None = None):
+    text = f"{profile}, {struct}"
+    if auc is not None:
+        text = f"{text} (AUC = {round(auc, AUC_PRECISION)})"
+    return text
 
 
 def get_roc_trace(fpr: pd.Series, tpr: pd.Series, profile: str, struct: str):
-    return go.Scatter(x=fpr,
-                      y=tpr,
-                      name=_format_profile_struct(profile, struct))
+    name = _format_profile_struct(profile,
+                                  struct,
+                                  compute_auc(fpr.values, tpr.values))
+    return go.Scatter(x=fpr, y=tpr, name=name)
 
 
 def iter_roc_traces(fprs: pd.DataFrame, tprs: pd.DataFrame, profile: str):
@@ -185,23 +194,37 @@ def iter_line_traces(lines: pd.DataFrame):
     for cluster, line in lines.items():
         yield get_line_trace(line, str(cluster))
 
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################
+
+def get_pairwise_position_trace(data: pd.Series, end5: int, end3: int):
+    # The data must be a long-form Series with a two-level MultiIndex.
+    # Convert the data to wide-form and make them symmetric.
+    if not isinstance(data, pd.Series):
+        raise TypeError("data must be a Series, "
+                        f"but got {type(data).__name__}")
+    if not isinstance(data.index, pd.MultiIndex):
+        raise TypeError("data.index must be a MultiIndex, "
+                        f"but got {type(data.index).__name__}")
+    if data.index.nlevels != 2:
+        raise ValueError("data.index must have 2 levels, "
+                         f"but got {data.index.nlevels}")
+    matrix_index = pd.RangeIndex(end5, end3 + 1)
+    matrix = pd.DataFrame(np.nan, matrix_index, matrix_index)
+    for (pos_x, pos_y), value in data.items():
+        matrix.loc[(pos_x, pos_y)] = value
+        matrix.loc[(pos_y, pos_x)] = value
+    return go.Heatmap(x=matrix_index,
+                      y=matrix_index,
+                      z=matrix,
+                      hoverongaps=False)
+
+
+def iter_stack_bar_traces(data: pd.DataFrame):
+    for column_label, column in data.items():
+        yield go.Bar(name=f"{data.columns.name} {column_label}",
+                     x=data.index,
+                     y=column,
+                     hovertext=[(f"{data.index.name} {index_label}, "
+                                 f"{data.columns.name} {column_label}: "
+                                 f"{round(value, PRECISION)}")
+                                for index_label, value in column.items()],
+                     hoverinfo="text")

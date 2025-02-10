@@ -1,5 +1,5 @@
-from logging import getLogger
 from pathlib import Path
+from typing import Iterable
 
 from click import command
 
@@ -14,7 +14,6 @@ from ..core.arg import (CMD_SPLITBAM,
                         opt_tmp_pfx,
                         opt_force,
                         opt_keep_tmp,
-                        opt_parallel,
                         opt_max_procs,
                         opt_bt2_local,
                         opt_bt2_discordant,
@@ -35,8 +34,8 @@ from ..core.arg import (CMD_SPLITBAM,
                         opt_min_mapq,
                         opt_min_reads,
                         opt_sep_strands,
-                        opt_minus_label,
-                        opt_f1r2_plus)
+                        opt_rev_label,
+                        opt_f1r2_fwd)
 from ..core.extern import (BOWTIE2_CMD,
                            BOWTIE2_BUILD_CMD,
                            SAMTOOLS_CMD,
@@ -49,8 +48,6 @@ from ..core.run import run_func
 from ..core.task import as_list_of_tuples, dispatch
 from ..core.tmp import release_to_out
 from ..core.write import need_write
-
-logger = getLogger(__name__)
 
 
 def split_xam_file(xam_file: Path,
@@ -67,14 +64,14 @@ def split_xam_file(xam_file: Path,
     result_dir = path.build(*path.CMD_DIR_SEGS,
                             top=out_dir,
                             sample=sample,
-                            cmd=path.CMD_ALIGN_DIR)
+                            cmd=path.ALIGN_STEP)
     if need_write(result_dir, force):
         # Sort and index the XAM file.
         xam_input_dir = tmp_dir.joinpath("input")
         xam_sorted = path.buildpar(*path.XAM_SEGS,
                                    top=xam_input_dir,
                                    sample=sample,
-                                   cmd=path.CMD_ALIGN_DIR,
+                                   cmd=path.ALIGN_STEP,
                                    ref=fasta.stem,
                                    ext=xam_file.suffix)
         run_sort_xam(xam_file, xam_sorted, n_procs=n_procs)
@@ -94,17 +91,17 @@ def split_xam_file(xam_file: Path,
                        path.build(*path.CMD_DIR_SEGS,
                                   top=release_dir,
                                   sample=sample,
-                                  cmd=path.CMD_ALIGN_DIR))
+                                  cmd=path.ALIGN_STEP))
     return result_dir
 
 
-@run_func(logger.critical, with_tmp=True, pass_keep_tmp=True)
-def run(fasta: str, *,
+@run_func(CMD_SPLITBAM, with_tmp=True, pass_keep_tmp=True)
+def run(fasta: str | Path, *,
         # Inputs
-        input_path: tuple[str, ...],
+        input_path: Iterable[str | Path],
         phred_enc: int,
         # Outputs
-        out_dir: str,
+        out_dir: str | Path,
         tmp_dir: Path,
         keep_tmp: bool,
         # Bowtie2
@@ -128,11 +125,10 @@ def run(fasta: str, *,
         min_mapq: int,
         min_reads: int,
         sep_strands: bool,
-        f1r2_plus: bool,
-        minus_label: str,
+        f1r2_fwd: bool,
+        rev_label: str,
         # Parallelization
         max_procs: int,
-        parallel: bool,
         force: bool) -> list[Path]:
     """ Trim FASTQ files and align them to reference sequences. """
     # Check for external dependencies.
@@ -142,8 +138,6 @@ def run(fasta: str, *,
     # Split each input XAM file.
     return dispatch(split_xam_file,
                     max_procs=max_procs,
-                    parallel=parallel,
-                    hybrid=True,
                     pass_n_procs=True,
                     args=as_list_of_tuples(map(Path, input_path)),
                     kwargs=dict(fasta=Path(fasta),
@@ -171,8 +165,8 @@ def run(fasta: str, *,
                                 min_mapq=min_mapq,
                                 min_reads=min_reads,
                                 sep_strands=sep_strands,
-                                f1r2_plus=f1r2_plus,
-                                minus_label=minus_label))
+                                f1r2_fwd=f1r2_fwd,
+                                rev_label=rev_label))
 
 
 # Parameters for command line interface
@@ -207,10 +201,9 @@ params = [
     opt_min_mapq,
     opt_min_reads,
     opt_sep_strands,
-    opt_f1r2_plus,
-    opt_minus_label,
+    opt_f1r2_fwd,
+    opt_rev_label,
     # Parallelization
-    opt_parallel,
     opt_max_procs,
     opt_force,
 ]

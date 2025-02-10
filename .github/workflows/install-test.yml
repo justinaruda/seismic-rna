@@ -1,0 +1,45 @@
+name: Install SEISMIC-RNA and run its test suite
+
+on:
+  # Runs on pushes targeting the main branch
+  push:
+    branches:
+      - main
+    paths:
+      - src/seismicrna/**
+      - pyproject.toml
+      - environment.yml
+      - .github/workflows/install-test.yml
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
+# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
+concurrency:
+  group: tests
+  cancel-in-progress: false
+
+jobs:
+  install-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        # Ensure the workflow runs with bash (on GitHub Actions, Conda only works with bash)
+        shell: bash -el {0}
+    steps:
+      - name: Checkout this GitHub repository
+        uses: actions/checkout@v4
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          activate-environment: seismic
+          environment-file: environment.yml
+          condarc-file: condarc.yml
+          python-version: 3.12
+      - name: Install SEISMIC-RNA from source
+        run: |
+          pip install .
+      - name: Run the test suite
+        run: |
+          echo "Running tests for $(seismic --version)"
+          bash test.sh

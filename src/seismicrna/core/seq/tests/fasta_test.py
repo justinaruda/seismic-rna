@@ -8,6 +8,9 @@ from tempfile import NamedTemporaryFile as NTFile
 from seismicrna.core import path
 from seismicrna.core.seq.fasta import (FASTA_NAME_MARK,
                                        FASTA_NAME_CHARS,
+                                       BadReferenceNameError,
+                                       BadReferenceNameLineError,
+                                       DuplicateReferenceNameError,
                                        valid_fasta_seqname,
                                        format_fasta_name_line,
                                        format_fasta_record,
@@ -18,58 +21,58 @@ from seismicrna.core.seq.xna import DNA, RNA
 
 
 class TestValidFastaSeqname(ut.TestCase):
-    """ Test valid_fasta_seqname. """
 
     def test_name_mark(self):
         self.assertEqual(FASTA_NAME_MARK, '>')
 
     def test_valid(self):
-        """ Test that it works on valid name lines. """
         for name in FASTA_NAME_CHARS:
             prefix = f"{FASTA_NAME_MARK}{name}"
             for line in [prefix, f"{prefix}\n"]:
                 self.assertEqual(valid_fasta_seqname(line), name)
 
     def test_misformatted(self):
-        """ Test that it fails on misformatted lines. """
         for a, b in product(printable, repeat=2):
             if a != FASTA_NAME_MARK:
                 prefix = f"{a}{b}"
                 for line in [prefix, f"{prefix}\n"]:
-                    self.assertRaisesRegex(ValueError, "is misformatted",
-                                           valid_fasta_seqname, line)
+                    self.assertRaisesRegex(BadReferenceNameLineError,
+                                           "Misformatted FASTA name line",
+                                           valid_fasta_seqname,
+                                           line)
 
     def test_illegal_prefix(self):
-        """ Test it fails on names starting with illegal characters. """
         prefixes = set(printable) - set(FASTA_NAME_CHARS)
         for a, b in product(prefixes, FASTA_NAME_CHARS):
             prefix = f"{FASTA_NAME_MARK}{a}{b}"
             for line in [prefix, f"{prefix}\n"]:
-                self.assertRaisesRegex(ValueError, "has a blank name",
-                                       valid_fasta_seqname, line)
+                self.assertRaisesRegex(BadReferenceNameLineError,
+                                       f"Blank FASTA name line",
+                                       valid_fasta_seqname,
+                                       line)
 
     def test_illegal_suffix(self):
-        """ Test it fails on names ending with illegal characters except
-        for trailing whitespace, which is simply ignored. """
         suffixes = set(printable) - (set(FASTA_NAME_CHARS) | set(whitespace))
         for a, b in product(FASTA_NAME_CHARS, suffixes):
             prefix = f"{FASTA_NAME_MARK}{a}{b}"
             for line in [prefix, f"{prefix}\n"]:
-                self.assertRaisesRegex(ValueError, "has illegal characters",
-                                       valid_fasta_seqname, line)
+                self.assertRaisesRegex(BadReferenceNameLineError,
+                                       "Illegal characters in FASTA name line",
+                                       valid_fasta_seqname,
+                                       line)
 
     def test_blank(self):
-        """ Test that it fails with blank names. """
         prefixes = [FASTA_NAME_MARK] + [f"{FASTA_NAME_MARK}{w}"
                                         for w in whitespace]
         for prefix in prefixes:
             for line in [prefix, f"{prefix}\n"]:
-                self.assertRaisesRegex(ValueError, "has a blank name",
-                                       valid_fasta_seqname, line)
+                self.assertRaisesRegex(BadReferenceNameLineError,
+                                       f"Blank FASTA name line",
+                                       valid_fasta_seqname,
+                                       line)
 
 
 class TestFormat(ut.TestCase):
-    """ Test format_fasta_name_line and format_fasta_record. """
 
     def test_format_fasta_name_line(self):
         lines = {
@@ -105,7 +108,6 @@ class TestFormat(ut.TestCase):
 
 
 class TestParseFasta(ut.TestCase):
-    """ Test parse_fasta. """
 
     def test_valid_names(self):
         with NTFile("w", suffix=path.FASTA_EXTS[0], delete=False) as f:
@@ -171,8 +173,8 @@ class TestParseFasta(ut.TestCase):
             f.write(linesep.join([">Seq1", "GTACGTGNTCATC",
                                   ">Seq1 ", "AGCTGTGNNT", "ATCG"]))
         try:
-            self.assertRaisesRegex(ValueError,
-                                   "Duplicate name 'Seq1'",
+            self.assertRaisesRegex(DuplicateReferenceNameError,
+                                   "'Seq1' in",
                                    lambda: dict(parse_fasta(filepath, DNA)))
         finally:
             remove(filepath)
@@ -184,8 +186,8 @@ class TestParseFasta(ut.TestCase):
                                   ">Seq2|", "AGCTGTGNNT", "ATCG"]))
         try:
             self.assertRaisesRegex(
-                ValueError,
-                "FASTA name line '>Seq2|' has illegal characters",
+                BadReferenceNameLineError,
+                "Illegal characters in FASTA name line",
                 lambda: dict(parse_fasta(filepath, DNA))
             )
         finally:
@@ -205,7 +207,6 @@ class TestParseFasta(ut.TestCase):
 
 
 class TestWriteFasta(ut.TestCase):
-    """ Test write_fasta. """
 
     def test_valid_names(self):
         seqs = [("Seq1", DNA("GTACGTGNTCATC")),
@@ -241,8 +242,8 @@ class TestWriteFasta(ut.TestCase):
         with NTFile("w", suffix=path.FASTA_EXTS[0], delete=True) as f:
             filepath = Path(f.file.name)
         try:
-            self.assertRaisesRegex(ValueError,
-                                   "Got blank reference name",
+            self.assertRaisesRegex(BadReferenceNameError,
+                                   "Blank reference name",
                                    write_fasta,
                                    filepath, seqs)
         finally:
@@ -254,31 +255,10 @@ class TestWriteFasta(ut.TestCase):
             filepath = Path(f.file.name)
         try:
             self.assertRaisesRegex(
-                ValueError,
-                "Reference name ' Seq1' has illegal characters",
+                BadReferenceNameError,
+                "Illegal characters in ' Seq1'",
                 write_fasta,
                 filepath, seqs
             )
         finally:
             filepath.unlink(missing_ok=True)
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################

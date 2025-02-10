@@ -1,13 +1,10 @@
 from abc import ABC, abstractmethod
 from functools import cached_property
-from logging import getLogger
 from pathlib import Path
 from typing import Any, Iterable
 
 from .brickle import load_brickle, save_brickle
 from .. import path
-
-logger = getLogger(__name__)
 
 DEFAULT_BROTLI_LEVEL = 10
 PICKLE_PROTOCOL = 5
@@ -82,7 +79,7 @@ class FileIO(ABC):
         """ Save the object to a file. """
 
     def __str__(self):
-        return f"{type(self).__name__}: {self.path_field_values()}"
+        return type(self).__name__
 
 
 class RefIO(FileIO, ABC):
@@ -100,25 +97,25 @@ class RefIO(FileIO, ABC):
         self.ref = ref
 
 
-class SectIO(RefIO, ABC):
-    """ File with a section of a reference. """
+class RegIO(RefIO, ABC):
+    """ File with a region of a reference. """
 
     @classmethod
     def dir_seg_types(cls):
-        return super().dir_seg_types() + (path.SectSeg,)
+        return super().dir_seg_types() + (path.RegSeg,)
 
-    def __init__(self, *, sect: str, **kwargs):
+    def __init__(self, *, reg: str, **kwargs):
         super().__init__(**kwargs)
-        self.sect = sect
+        self.reg = reg
 
 
 class BrickleIO(FileIO, ABC):
     """ Brotli-compressed file of a Pickled object (Brickle). """
 
     @classmethod
-    def load(cls, file: Path, checksum: str = ""):
+    def load(cls, file: Path, **kwargs):
         """ Load from a compressed pickle file. """
-        return load_brickle(file, checksum=checksum, check_type=cls)
+        return load_brickle(file, data_type=cls, **kwargs)
 
     def save(self, top: Path, *args, **kwargs):
         """ Save to a pickle file compressed with Brotli. """
@@ -167,24 +164,3 @@ def recast_file_path(input_path: Path,
                           input_type.seg_types(),
                           output_type.seg_types(),
                           **(override | output_type.auto_fields()))
-
-########################################################################
-#                                                                      #
-# © Copyright 2024, the Rouskin Lab.                                   #
-#                                                                      #
-# This file is part of SEISMIC-RNA.                                    #
-#                                                                      #
-# SEISMIC-RNA is free software; you can redistribute it and/or modify  #
-# it under the terms of the GNU General Public License as published by #
-# the Free Software Foundation; either version 3 of the License, or    #
-# (at your option) any later version.                                  #
-#                                                                      #
-# SEISMIC-RNA is distributed in the hope that it will be useful, but   #
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANT- #
-# ABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General     #
-# Public License for more details.                                     #
-#                                                                      #
-# You should have received a copy of the GNU General Public License    #
-# along with SEISMIC-RNA; if not, see <https://www.gnu.org/licenses>.  #
-#                                                                      #
-########################################################################
