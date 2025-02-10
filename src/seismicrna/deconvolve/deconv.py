@@ -1,35 +1,15 @@
 from functools import cached_property
-from itertools import combinations, filterfalse
-from typing import Callable, Iterable
+from typing import Iterable
 
 import numpy as np
 import pandas as pd
 
-from ..cluster.names import CLUST_PROP_NAME
-from ..cluster.uniq import UniqReads
-from ..core.array import get_length
+from ..cluster.uniq import UniqReads, get_uniq_reads
 from ..core.header import ClustHeader
 from ..core.logs import logger
-from ..core.mu import calc_norm_rmsd, calc_pearson
-from ..core.unbias import calc_params, calc_params_observed
-
-
-
-
-
-
-
 from ..core.rel.pattern import RelPattern
 from seismicrna.mask.dataset import MaskMutsDataset
 from seismicrna.mask.batch import MaskMutsBatch
-from seismicrna.core.header import ClustHeader, list_ks_clusts
-
-from ..cluster.uniq import UniqReads, get_uniq_reads
-
-import pandas as pd
-import math
-
-from ..core.rel import RelPattern
 
 
 class DeconvRun(object):
