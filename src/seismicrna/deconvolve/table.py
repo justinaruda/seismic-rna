@@ -37,6 +37,8 @@ from .report import DeconvolveReport
 
 from .calc import calc_bayes
 
+from .dataset import load_deconvolve_dataset
+
 
 class DeconvolveTable(RelTypeTable, ABC):
 
@@ -99,7 +101,6 @@ class DeconvolvePositionTable(DeconvolveTable, PartialPositionTable, ABC):
                        k: int | None,
                        clust: int | None):
         """ Yield RNA mutational profiles from a table. """
-        print("Iterating")
         if regions is not None:
             regions = list(regions)
         else:
@@ -262,15 +263,13 @@ class DeconvolveTabulator(PartialTabulator, ABC):
                 orig_df = pd.DataFrame(index=table_per_pos.index, columns=table_per_pos.columns)
                 for clust, pos, conf in zip(self.cluster_list, self.positions_list, self.confidences_list):
                     for pos_i, conf_i in zip(pos, conf):
-    
-                        idx_infor = ((pos_i, slice(None)), (INFOR_REL, *clust))
-                        idx_mutat = ((pos_i, slice(None)), (MUTAT_REL, *clust))
-    
-                        orig_df.loc[idx_infor] = table_per_pos.loc[idx_infor].values[0]
-                        orig_df.loc[idx_mutat] = table_per_pos.loc[idx_mutat].values[0]
-                
-                        table_per_pos.loc[idx_infor] = 1
-                        table_per_pos.loc[idx_mutat] = conf_i
+                        for rel in (INFOR_REL, MUTAT_REL):
+                            idx = ((pos_i, slice(None)), (rel, *clust))
+                            orig_df.loc[idx] = table_per_pos.loc[idx].values[0]
+                            if rel == INFOR_REL:
+                                table_per_pos.loc[idx] = 1
+                            elif rel == MUTAT_REL:
+                                table_per_pos.loc[idx] = conf_i
             try:
                 n_rels, n_clust = adjust_counts(table_per_pos,
                                      self.p_ends_given_clust_noclose,
@@ -282,10 +281,9 @@ class DeconvolveTabulator(PartialTabulator, ABC):
                 if self.corr_editing_bias:
                     for clust, pos in zip(self.cluster_list, self.positions_list):
                         for pos_i in pos:
-                            idx_infor = ((pos_i, slice(None)), (INFOR_REL, *clust))
-                            idx_mutat = ((pos_i, slice(None)), (MUTAT_REL, *clust))
-                            n_rels.loc[idx_infor] = orig_df.loc[idx_infor].values[0]
-                            n_rels.loc[idx_mutat] = orig_df.loc[idx_mutat].values[0]
+                            for rel in (INFOR_REL, MUTAT_REL):
+                                idx = ((pos_i, slice(None)), (rel, *clust))
+                                n_rels.loc[idx] = orig_df.loc[idx].values[0]
                 return n_rels, n_clust
             except Exception as error:
                 logger.warning(error)
@@ -293,10 +291,9 @@ class DeconvolveTabulator(PartialTabulator, ABC):
             if self.corr_editing_bias:
                 for clust, pos in zip(self.cluster_list, self.positions_list):
                     for pos_i in pos:
-                        idx_infor = ((pos_i, slice(None)), (INFOR_REL, *clust))
-                        idx_mutat = ((pos_i, slice(None)), (MUTAT_REL, *clust))
-                        table_per_pos.loc[idx_infor] = orig_df.loc[idx_infor].values[0]
-                        table_per_pos.loc[idx_mutat] = orig_df.loc[idx_mutat].values[0]
+                        for rel in (INFOR_REL, MUTAT_REL):
+                            idx = ((pos_i, slice(None)), (rel, *clust))
+                            table_per_pos.loc[idx] = orig_df.loc[idx].values[0]
                     
         return table_per_pos, self.num_reads
 
@@ -314,6 +311,10 @@ class DeconvolveTabulator(PartialTabulator, ABC):
 
 
 class DeconvolveDatasetTabulator(DeconvolveTabulator, PartialDatasetTabulator):
+
+    @classmethod
+    def load_function(cls):
+        return load_deconvolve_dataset
 
     def __init__(self, *, dataset: DeconvolveMutsDataset, **kwargs):
         self.dataset = dataset

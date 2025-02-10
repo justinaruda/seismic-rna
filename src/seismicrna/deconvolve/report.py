@@ -17,7 +17,8 @@ from ..core.report import (Field,
                            DeconvolveConfidenceThreshF,
                            DeconvolveConfidenceF,
                            DeconvolveNoProbeSampleF,
-                           DeconvolveOnlyProbeSampleF)
+                           DeconvolveOnlyProbeSampleF,
+                           DeconvolveStrictF)
 
 
 class DeconvolveReport(BatchedReport, DeconvolveIO):
@@ -47,11 +48,12 @@ class DeconvolveReport(BatchedReport, DeconvolveIO):
             DeconvolveConfidenceF,
             DeconvolveNoProbeSampleF,
             DeconvolveOnlyProbeSampleF,
+            DeconvolveStrictF
         ] + super().fields()
 
     @classmethod
     def auto_fields(cls):
-        return {**super().auto_fields(), path.CMD: path.CMD_DECONV_DIR}
+        return {**super().auto_fields(), path.CMD: path.DECONVOLVE_STEP}
     
     @classmethod
     def from_deconv_run(cls, deconv_run,
@@ -75,6 +77,7 @@ class DeconvolveReport(BatchedReport, DeconvolveIO):
                    deconv_min_reads=deconv_run.min_reads,
                    no_probe_sample=no_probe_sample,
                    only_probe_sample=only_probe_sample,
+                   strict=deconv_run.strict,
                    checksums={DeconvolveBatchIO.btype(): checksums},
                    deconvolution_mapping=deconv_run.mapping_indexes,
                    deconvolve_read_counts=deconv_run.read_counts,

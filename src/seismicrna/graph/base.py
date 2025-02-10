@@ -24,7 +24,7 @@ from ..core.arg import (arg_input_path,
                         opt_max_procs)
 from ..core.dataset import MutsDataset
 from ..core.seq import DNA
-from ..core.table import Table, PositionTable
+from ..core.table import Table
 from ..core.write import need_write
 from ..mask.dataset import MaskDataset
 from ..mask.table import MaskTable
@@ -33,7 +33,7 @@ from ..relate.table import RelateTable
 
 # Define actions.
 ACTION_REL = "all"
-ACTION_MASK = "masked"
+ACTION_MASK = "filtered"
 ACTION_CLUST = "clustered"
 ACTION_DECONV = "deconvolved"
 
@@ -114,27 +114,8 @@ class BaseGraph(ABC):
         return (path.SampSeg,
                 path.CmdSeg,
                 path.RefSeg,
-                path.SectSeg,
+                path.RegSeg,
                 path.GraphSeg)
-
-    def __init__(self, *,
-                 use_ratio: bool,
-                 quantile: float):
-        """
-        Parameters
-        ----------
-        use_ratio: bool
-            Use the ratio of the number of times the relationship occurs
-            to the number of occurrances of another kind of relationship
-            (which is Covered for Covered and Informed, and Informed for
-            all other relationships), rather than the raw count.
-        quantile: float
-            If `use_ratio` is True, then normalize the ratios to this
-            quantile and then winsorize them to the interval [0, 1].
-            Passing 0.0 disables normalization and winsorization.
-        """
-        self.use_ratio = use_ratio
-        self.quantile = quantile
 
     @property
     @abstractmethod
@@ -173,7 +154,7 @@ class BaseGraph(ABC):
 
     @property
     @abstractmethod
-    def path_subject(self):
+    def path_subject(self) -> str:
         """ Subject of the graph. """
 
     @cached_property
@@ -195,7 +176,7 @@ class BaseGraph(ABC):
                 path.SAMP: self.sample,
                 path.CMD: path.GRAPH_STEP,
                 path.REF: self.ref,
-                path.SECT: self.sect,
+                path.REG: self.reg,
                 path.GRAPH: self.graph_filename}
 
     def get_path(self, ext: str):
@@ -203,18 +184,6 @@ class BaseGraph(ABC):
         return path.buildpar(*self.get_path_segs(),
                              **self.get_path_fields(),
                              ext=ext)
-
-    @cached_property
-    def _fetch_kwargs(self) -> dict[str, Any]:
-        """ Keyword arguments for self._fetch_data. """
-        return dict(rel=self.rel_names)
-
-    def _fetch_data(self, table: PositionTable, **kwargs):
-        """ Fetch data from the table. """
-        kwargs = self._fetch_kwargs | kwargs
-        return (table.fetch_ratio(quantile=self.quantile, **kwargs)
-                if self.use_ratio
-                else table.fetch_count(**kwargs))
 
     @cached_property
     @abstractmethod
@@ -341,7 +310,8 @@ class BaseGraph(ABC):
         return files
 
     @cached_property
-    def _title_main(self):
+    @abstractmethod
+    def _title_main(self) -> list[str]:
         """ Main part of the title, as a list. """
         return list()
 
@@ -372,7 +342,7 @@ class BaseWriter(ABC):
               png: bool,
               force: bool,
               **kwargs):
-        """ Generate and write every graph for the table. """
+        """ Generate and write every type of graph. """
         return list(chain(graph.write(csv=csv,
                                       html=html,
                                       svg=svg,

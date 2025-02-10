@@ -918,6 +918,13 @@ opt_cluster_abundance_table = Option(
 
 # Deconvolve options
 
+opt_strict = Option(
+    ("--strict/--no-strict",),
+    type=bool,
+    default=False,
+    help="Guarantee reads edited at specific positions are edited nowhere else"
+)
+
 opt_deconvolve_pos_table = Option(
     ("--deconvolve-pos-table/--no-deconvolve-pos-table",),
     type=bool,

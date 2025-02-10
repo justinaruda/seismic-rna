@@ -88,7 +88,8 @@ from .arg import (opt_phred_enc,
                   opt_mask_gu,
                   opt_mask_polya,
                   opt_mask_discontig,
-                  opt_min_phred)
+                  opt_min_phred,
+                  opt_strict)
 from .io import FileIO, ReadBatchIO, RefIO
 from .logs import logger
 from .rel import HalfRelPattern
@@ -557,6 +558,7 @@ DeconvolveClusterCountF = Field("deconvolve_cluster_count",
 DeconvolveNoProbeSampleF = Field("no_probe_sample", "No probe sample", str)
 DeconvolveOnlyProbeSampleF = Field("only_probe_sample",
                                    "Only probe sample", str)
+DeconvolveStrictF = OptionField(opt_strict)
 
 # Field exceptions
 

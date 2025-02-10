@@ -275,6 +275,7 @@ class TableWriter(Table, ABC):
     """ Write a table to a file. """
 
     def __init__(self, tabulator: Tabulator):
+        super().__init__()
         self.tabulator = tabulator
 
     @property

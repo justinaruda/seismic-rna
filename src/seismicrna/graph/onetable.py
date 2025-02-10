@@ -26,7 +26,7 @@ class OneTableGraph(TableGraph, OneSourceGraph, ABC):
                  table: Table | PositionTable | AbundanceTable,
                  **kwargs):
         self.table = table
-        self.k_clust_list = kwargs.pop(K_CLUST_KEY, None)
+        # self.k_clust_list = kwargs.pop(K_CLUST_KEY, None)
         super().__init__(**kwargs)
 
     @property

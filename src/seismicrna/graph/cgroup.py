@@ -7,7 +7,11 @@ from ..core.arg import (NO_GROUP,
                         GROUP_ALL,
                         opt_cgroup)
 from ..core.dataset import Dataset
-from ..core.header import NO_KS, NO_CLUSTS, format_clust_names, list_ks_clusts, K_CLUST_KEY
+from ..core.header import (NO_KS,
+                           NO_CLUSTS,
+                           format_clust_names,
+                           list_ks_clusts,
+                           K_CLUST_KEY)
 from ..core.table import Table
 
 
@@ -34,7 +38,7 @@ def make_tracks(source: Dataset | Table,
                 **kwargs):
     """ Make an index for the rows or columns of a graph. """
     clusts = get_ks_clusts(source)
-    
+
     if k is None and clust is None:
         tracks = clusts
     tracks = [(k_, clust_) for k_, clust_ in clusts
@@ -77,6 +81,10 @@ def cgroup_table(source: Dataset | Table, cgroup: str):
 
 class ClusterGroupGraph(BaseGraph, ABC):
     """ Graph in which clusters can be placed in subplots. """
+
+    def __init__(self, **kwargs):
+        self.k_clust_list = kwargs.pop(K_CLUST_KEY, None)
+        super().__init__(**kwargs)
 
     @property
     @abstractmethod

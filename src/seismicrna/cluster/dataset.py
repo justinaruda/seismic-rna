@@ -119,12 +119,17 @@ class ClusterMutsDataset(ClusterDataset, MultistepDataset, UnbiasDataset):
         return getattr(self.data2, "best_k")
 
     def _integrate(self, batch1: MaskMutsBatch, batch2: ClusterBatchIO):
+        if self.masked_read_nums is not None:
+            masked_read_nums = self.masked_read_nums.get(batch1.batch)
+        else:
+            masked_read_nums = None
         return ClusterMutsBatch(batch=batch1.batch,
                                 region=batch1.region,
                                 seg_end5s=batch1.seg_end5s,
                                 seg_end3s=batch1.seg_end3s,
                                 muts=batch1.muts,
                                 resps=batch2.resps,
+                                masked_read_nums=masked_read_nums,
                                 sanitize=False)
 
 

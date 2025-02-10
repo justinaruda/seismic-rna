@@ -12,6 +12,7 @@ from ..core.arg import (CMD_DECONVOLVE,
                         opt_keep_tmp,
                         opt_deconvolve_pos_table,
                         opt_deconvolve_abundance_table,
+                        opt_strict,
                         opt_brotli_level,
                         opt_max_procs,
                         opt_force)
@@ -161,6 +162,7 @@ def run(deconv_path: tuple[str, ...],
                         report_indiv_positions += tuple(conf_positions)
                         logger.detail(f"Confident of positions {conf_positions} "
                                       f"for reference: {ref} region: {reg}")
+                    report_indiv_positions = tuple(sorted(set(report_indiv_positions)))
                     for position in report_indiv_positions:
                         report_positions += ((position,),)
                     report_files.append(file)
@@ -195,6 +197,8 @@ def run(deconv_path: tuple[str, ...],
 params = [
     # Input files
     arg_input_path,
+    # Deconvolve options
+    opt_strict,
     # Table options
     opt_deconvolve_pos_table,
     opt_deconvolve_abundance_table,

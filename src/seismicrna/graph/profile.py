@@ -15,14 +15,14 @@ from .trace import iter_seq_base_bar_traces, iter_seqbar_stack_traces
 from ..core.header import parse_header
 from ..core.run import log_command
 from ..core.seq import POS_NAME
-from ..core.header import K_CLUST_KEY
+from ..deconvolve.table import DeconvolveTable
 
 COMMAND = __name__.split(os.path.extsep)[-1]
 
 
 class ProfileGraph(OneTableRelClusterGroupGraph, ColorMapGraph, ABC):
     """ Bar graph of a mutational profile for one table. """
-    
+
     @classmethod
     def graph_kind(cls):
         return COMMAND
@@ -93,13 +93,24 @@ class MultiRelsProfileGraph(MultiRelsGraph, ProfileGraph):
 class ProfileWriter(OneTableRelClusterGroupWriter):
 
     def get_graph(self, rels_group: str, **kwargs):
-        return (OneRelProfileGraph(table=self.table,
-                                   rel=rels_group,
-                                   **kwargs)
-                if len(rels_group) == 1
-                else MultiRelsProfileGraph(table=self.table,
-                                           rels=rels_group,
-                                           **kwargs))
+        if isinstance(self.table, DeconvolveTable):
+            from ..deconvolve.graph import (OneRelDeconvolvedProfileGraph,
+                                            MultiRelsDeconvolvedProfileGraph)
+            return (OneRelDeconvolvedProfileGraph(table=self.table,
+                                                  rel=rels_group,
+                                                  **kwargs)
+                    if len(rels_group) == 1
+                    else MultiRelsDeconvolvedProfileGraph(table=self.table,
+                                                         rels=rels_group,
+                                                         **kwargs))
+        else:
+            return (OneRelProfileGraph(table=self.table,
+                                       rel=rels_group,
+                                       **kwargs)
+                    if len(rels_group) == 1
+                    else MultiRelsProfileGraph(table=self.table,
+                                               rels=rels_group,
+                                               **kwargs))
 
 
 class ProfileRunner(OneTableRelClusterGroupRunner, PositionTableRunner):

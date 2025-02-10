@@ -1,5 +1,6 @@
 from functools import cached_property
 
+import numpy as np
 import pandas as pd
 
 from ..mask.batch import PartialRegionMutsBatch, PartialReadBatch
@@ -24,4 +25,7 @@ class ClusterMutsBatch(ClusterReadBatch, PartialRegionMutsBatch):
 
     @property
     def read_weights(self):
-        return self.resps
+        read_weights = self.resps
+        if self.masked_reads_bool.any():
+            read_weights[self.masked_reads_bool] = 0
+        return read_weights

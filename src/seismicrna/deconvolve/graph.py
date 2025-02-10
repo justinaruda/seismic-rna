@@ -106,7 +106,7 @@ class DeconvolvedRollingCorrelationGraph(RollingCorrelationGraph):
                          clust2=self.clust2,
                          **kwargs)
 
-        
+
     @cached_property
     def data1(self):
         """ Data from table 1. """

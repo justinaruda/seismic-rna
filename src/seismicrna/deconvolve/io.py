@@ -19,7 +19,7 @@ class DeconvolveIO(RegIO, ABC):
 
     @classmethod
     def auto_fields(cls):
-        return super().auto_fields() | {path.CMD: path.CMD_DECONV_DIR}
+        return super().auto_fields() | {path.CMD: path.DECONVOLVE_STEP}
 
 
 class DeconvolveBatchIO(ReadBatchIO, DeconvolveIO, DeconvolveReadBatch):

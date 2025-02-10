@@ -89,6 +89,12 @@ class MaskMutsDataset(MaskDataset, MultistepDataset, UnbiasDataset):
     def pattern(self):
         return self.data2.pattern
 
+    @pattern.setter
+    def pattern(self, pattern):
+        if type(pattern) == type(RelPattern):
+            raise ValueError(f"{repr(pattern)} is not a valid RelPattern")
+        self.data2.pattern = pattern
+
     @property
     def min_mut_gap(self):
         return getattr(self.data2, "min_mut_gap")
@@ -104,12 +110,6 @@ class MaskMutsDataset(MaskDataset, MultistepDataset, UnbiasDataset):
     @property
     def quick_unbias_thresh(self):
         return getattr(self.data2, "quick_unbias_thresh")
-
-    @pattern.setter
-    def pattern(self, pattern):
-        if type(pattern) == type(RelPattern):
-            raise ValueError(f"{repr(pattern)} is not a valid RelPattern")
-        self.data2.pattern = pattern
 
     @cached_property
     def region(self):
