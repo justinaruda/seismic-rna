@@ -117,7 +117,6 @@ def write_datasets(out_dir: Path,
                               overhangs=True,
                               insert3=True,
                               ambindel=False,
-                              ambindel_max_iter=0,
                               clip_end5=0,
                               clip_end3=0,
                               min_reads=0,
@@ -181,7 +180,7 @@ class TestMask(ut.TestCase, ABC):
                                            self.reads_per_batch(),
                                            self.end5s(),
                                            self.end3s())
-        set_config(verbosity=Level.FATAL, raise_on_error=True)
+        set_config(verbosity=Level.FATAL, exit_on_error=True)
 
     def tearDown(self):
         rmtree(self._out_dir)
@@ -465,4 +464,4 @@ class TestMaskSingle1Sample1Batch(TestMaskSingle,
 
 
 if __name__ == "__main__":
-    ut.main()
+    ut.main(verbosity=2)

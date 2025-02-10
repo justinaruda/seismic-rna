@@ -8,6 +8,7 @@ from typing import Iterable
 from click import Argument, Choice, Option, Parameter, Path
 
 from ..io import DEFAULT_BROTLI_LEVEL
+from ..logs import DEFAULT_EXIT_ON_ERROR
 from ..seq import DNA
 
 # System information
@@ -41,11 +42,11 @@ GROUP_BY_K = "k"
 GROUP_ALL = "a"
 GROUP_CLUST_OPTIONS = NO_GROUP, GROUP_BY_K, GROUP_ALL
 
-KEY_NRMSD = "nrmsd"
+KEY_MARCD = "marcd"
 KEY_PEARSON = "pcc"
 KEY_SPEARMAN = "scc"
 KEY_DETERM = "r2"
-METRIC_KEYS = [KEY_NRMSD,
+METRIC_KEYS = [KEY_MARCD,
                KEY_PEARSON,
                KEY_SPEARMAN,
                KEY_DETERM]
@@ -499,13 +500,6 @@ opt_ambindel = Option(
     help="Mark all ambiguous insertions and deletions (indels)"
 )
 
-opt_ambindel_max_iter = Option(
-    ("--ambindel-max-iter",),
-    type=int,
-    default=10_000_000,
-    help="Stop ambiguous indels after this many iterations (0 for no limit)"
-)
-
 opt_insert3 = Option(
     ("--insert3/--insert5",),
     type=bool,
@@ -561,6 +555,14 @@ opt_f1r2_fwd = Option(
     default=False,
     help=("With --sep-strands, consider forward mate 1s and reverse mate 2s "
           "to be forward-stranded")
+)
+
+opt_write_read_names = Option(
+    ("--write-read-names/--no-write-read-names",),
+    type=bool,
+    default=False,
+    help="Write the name of each read in a second set of batches (necessary "
+         "for the options --mask-read or --mask-read-file)"
 )
 
 opt_relate_pos_table = Option(
@@ -846,32 +848,32 @@ opt_max_pearson_run = Option(
     help="Remove runs with two clusters more similar than this correlation"
 )
 
-opt_min_nrmsd_run = Option(
-    ("--min-nrmsd-run",),
+opt_min_marcd_run = Option(
+    ("--min-marcd-run",),
     type=float,
-    default=0.1,
-    help="Remove runs with two clusters different by less than this NRMSD"
+    default=0.0175,
+    help="Remove runs with two clusters that differ by less than this MARCD"
 )
 
 opt_max_loglike_vs_best = Option(
     ("--max-loglike-vs-best",),
     type=float,
-    default=250.,
-    help="Remove Ks whose 1st/2nd log likelihood difference exceeds this gap"
+    default=0.,
+    help="Remove Ks with a log likelihood gap larger than this (0 for no limit)"
 )
 
 opt_min_pearson_vs_best = Option(
     ("--min-pearson-vs-best",),
     type=float,
-    default=0.975,
+    default=0.98,
     help="Remove Ks where every run has less than this correlation vs. the best"
 )
 
-opt_max_nrmsd_vs_best = Option(
-    ("--max-nrmsd-vs-best",),
+opt_max_marcd_vs_best = Option(
+    ("--max-marcd-vs-best",),
     type=float,
-    default=0.05,
-    help="Remove Ks where every run has more than this NRMSD vs. the best"
+    default=0.005,
+    help="Remove Ks where every run has more than this MARCD vs. the best"
 )
 
 opt_em_runs = Option(
@@ -959,8 +961,9 @@ opt_join_clusts = Option(
 opt_region_length = Option(
     ("--region-length", "-L",),
     type=int,
-    default=180,
-    help="Make each region this length (nt)",
+    default=0,
+    help="Make each region this length (if 0, then calculate the length over "
+         "which the average read has 2 mutations)",
 )
 
 opt_region_min_overlap = Option(
@@ -968,6 +971,15 @@ opt_region_min_overlap = Option(
     type=float,
     default=(2. / 3.),
     help="Make adjacent regions overlap by at least this fraction of length",
+)
+
+opt_max_marcd_join = Option(
+    ("--max-marcd-join",),
+    type=float,
+    default=0.0175,
+    help="Join regions with the same numbers of clusters only if the mean "
+         "arcsine distance (MARCD) of their mutation rates and proportions "
+         "does not exceed this threshold"
 )
 
 # List options
@@ -1142,10 +1154,10 @@ opt_metric = Option(
     type=Choice(METRIC_KEYS, case_sensitive=False),
     default=KEY_PEARSON,
     help=(f"Metric to compare mutation rates: "
-          f"{repr(KEY_NRMSD)} = normalized root-mean-square deviation (NRMSD), "
           f"{repr(KEY_PEARSON)} = Pearson correlation coefficient (r), "
           f"{repr(KEY_SPEARMAN)} = Spearman correlation coefficient (ρ), "
-          f"{repr(KEY_DETERM)} = coefficient of determination (R²)")
+          f"{repr(KEY_DETERM)} = coefficient of determination (R²), "
+          f"{repr(KEY_MARCD)} = mean arcsine distance (MARCD)")
 )
 
 opt_struct_file = Option(
@@ -1498,6 +1510,7 @@ opt_fq_gzip = Option(
 )
 
 # Logging options
+
 opt_verbose = Option(
     ("--verbose", "-v"),
     count=True,
@@ -1526,11 +1539,11 @@ opt_log_color = Option(
     help="Log messages with or without color codes on stdout"
 )
 
-opt_profile = Option(
-    ("--profile",),
-    type=Path(exists=False, dir_okay=False),
-    default="",
-    help="Profile code performance and log results to the given file"
+opt_exit_on_error = Option(
+    ("--exit-on-error/--log-on-error",),
+    type=bool,
+    default=DEFAULT_EXIT_ON_ERROR,
+    help="If an error occurs, whether to log a message or exit SEISMIC-RNA"
 )
 
 

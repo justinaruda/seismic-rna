@@ -35,7 +35,7 @@ from ..core.join import (BATCH_NUM,
                          RESPS,
                          JoinMutsDataset)
 from ..core.logs import logger
-from ..core.mu import calc_sum_abs_diff_log_odds
+from ..core.mu import calc_sum_arcsine_distance
 from ..core.report import JoinedClustersF, KsWrittenF, BestKF
 from ..core.seq import POS_NAME, BASE_NAME
 from ..core.table import MUTAT_REL
@@ -133,7 +133,7 @@ class ClusterMutsDataset(ClusterDataset, MultistepDataset, UnbiasDataset):
                                 sanitize=False)
 
 
-def _get_clust_params(dataset: ClusterMutsDataset, max_procs: int = 1):
+def get_clust_params(dataset: ClusterMutsDataset, max_procs: int = 1):
     """ Get the mutation rates and proportion for each cluster. If table
     files already exist, then use them to get the parameters; otherwise,
     calculate the parameters from the dataset. """
@@ -214,19 +214,19 @@ def _join_regions_k(region_params: dict[str, pd.DataFrame]):
     # from each pair of regions.
     cost_matrices = dict()
     for (reg1, df1), (reg2, df2) in combinations(region_params.items(), 2):
-        # Even if the regions share no positions, the intersection of
-        # their indexes will still include the proportion (0, "p").
+        # Even if the regions share no positions, their indexes will
+        # both include the proportion (0, "p").
         overlap = df1.index.intersection(df2.index)
         assert overlap.size > 0
         logger.detail(f"Regions {repr(reg1)} and {repr(reg2)} "
-                      f"share {overlap.size - 1} position(s)")
+                      f"share {overlap.size} parameter(s)")
         # Collect the cost of joining each cluster from region 1 with
         # each cluster from region 2.
         cost_matrix = pd.DataFrame(np.nan, clusters, clusters)
         for cluster1, cluster2 in product(clusters, repeat=2):
-            # Use log odds differences as the costs.
-            cost = calc_sum_abs_diff_log_odds(df1.loc[overlap, cluster1],
-                                              df2.loc[overlap, cluster2])
+            # Use total arcsine distances as the costs.
+            cost = calc_sum_arcsine_distance(df1.loc[overlap, cluster1],
+                                             df2.loc[overlap, cluster2])
             cost_matrix.loc[cluster1, cluster2] = cost
         logger.detail(f"Regions {repr(reg1)} and {repr(reg2)} "
                       f"have a cost matrix of\n{cost_matrix}")
@@ -333,7 +333,7 @@ class JoinClusterMutsDataset(ClusterDataset,
                 )
             self.joined_clusts = report_joined_clusts
         else:
-            regions_params = {dataset.region.name: _get_clust_params(dataset)
+            regions_params = {dataset.region.name: get_clust_params(dataset)
                               for dataset in self.datasets}
             # Determine the best way to join each number of clusters.
             optimal_joined_clusts = {reg: {k: dict() for k in self.ks}

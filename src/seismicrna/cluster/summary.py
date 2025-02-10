@@ -6,18 +6,19 @@ import plotly.express as px
 from .emk import EMRunsK, NOCONV
 from .names import JACKPOT_QUOTIENT
 from ..core.header import NUM_CLUSTS_NAME
+from ..core.logs import logger
 
 EM_RUN_NAME = "Run"
 K_RUN_NAMES = [NUM_CLUSTS_NAME, EM_RUN_NAME]
 RUN_PASSING = "run_passing"
 ATTRS = {
     RUN_PASSING: "Whether the run passed filters",
-    "log_likes": "Final log likelihood",
+    "log_likes": "Log likelihood",
     "bics": "Bayesian information criterion",
     "jackpot_quotients": JACKPOT_QUOTIENT,
-    "min_nrmsds": "Minimum normalized RMSD between any two clusters",
+    "min_marcds": "Minimum MARCD between any two clusters",
     "max_pearsons": "Maximum Pearson correlation between any two clusters",
-    "nrmsds_vs_best": "Normalized RMSD versus the best run",
+    "marcds_vs_best": "MARCD versus the best run",
     "pearsons_vs_best": "Pearson correlation versus the best run",
     "converged": f"Iterations ({NOCONV} if the run did not converge)",
 }
@@ -79,8 +80,11 @@ def graph_attrs(table: pd.DataFrame, to_dir: Path):
     for key, attr in ATTRS.items():
         if key == RUN_PASSING:
             continue
-        fig = graph_attr(table[attr], passing_text)
-        fig.write_image(to_dir.joinpath(f"{key}.pdf"))
+        try:
+            fig = graph_attr(table[attr], passing_text)
+            fig.write_image(to_dir.joinpath(f"{key}.pdf"))
+        except Exception as error:
+            logger.error(error)
 
 
 def write_summaries(ks: list[EMRunsK], to_dir: Path):

@@ -50,7 +50,6 @@ from .arg import (opt_phred_enc,
                   opt_min_mapq,
                   opt_insert3,
                   opt_ambindel,
-                  opt_ambindel_max_iter,
                   opt_overhangs,
                   opt_clip_end5,
                   opt_clip_end3,
@@ -79,10 +78,10 @@ from .arg import (opt_phred_enc,
                   opt_jackpot_conf_level,
                   opt_max_jackpot_quotient,
                   opt_max_pearson_run,
-                  opt_min_nrmsd_run,
+                  opt_min_marcd_run,
                   opt_max_loglike_vs_best,
                   opt_min_pearson_vs_best,
-                  opt_max_nrmsd_vs_best,
+                  opt_max_marcd_vs_best,
                   opt_try_all_ks,
                   opt_write_all_ks,
                   opt_mask_gu,
@@ -90,6 +89,7 @@ from .arg import (opt_phred_enc,
                   opt_mask_discontig,
                   opt_min_phred,
                   opt_strict)
+from .error import InconsistentValueError
 from .io import FileIO, ReadBatchIO, RefIO
 from .logs import logger
 from .rel import HalfRelPattern
@@ -359,7 +359,6 @@ RefseqChecksumF = Field("refseq_checksum",
                         str)
 Insert3F = OptionField(opt_insert3)
 AmbindelF = OptionField(opt_ambindel)
-AmbindelMaxIterF = OptionField(opt_ambindel_max_iter)
 OverhangsF = OptionField(opt_overhangs)
 MinPhredF = OptionField(opt_min_phred)
 ClipEnd5F = OptionField(opt_clip_end5)
@@ -494,10 +493,10 @@ JackpotF = OptionField(opt_jackpot)
 JackpotConfLevelF = OptionField(opt_jackpot_conf_level)
 MaxJackpotQuotientF = OptionField(opt_max_jackpot_quotient)
 MaxPearsonRunF = OptionField(opt_max_pearson_run)
-MinNRMSDRunF = OptionField(opt_min_nrmsd_run)
+MinMARCDRunF = OptionField(opt_min_marcd_run)
 MaxLogLikeVsBestF = OptionField(opt_max_loglike_vs_best)
 MinPearsonVsBestF = OptionField(opt_min_pearson_vs_best)
-MaxNRMSDVsBestF = OptionField(opt_max_nrmsd_vs_best)
+MaxMARCDVsBestF = OptionField(opt_max_marcd_vs_best)
 TryAllKsF = OptionField(opt_try_all_ks)
 WriteAllKsF = OptionField(opt_write_all_ks)
 ClustNumRunsF = OptionField(opt_em_runs)
@@ -705,9 +704,11 @@ class Report(FileIO, ABC):
         top, path_fields = cls.parse_path(file)
         for key, value in report.path_field_values().items():
             if value != path_fields.get(key):
-                raise ValueError(f"Got different values for {repr(key)} "
-                                 f"in path ({repr(path_fields.get(key))}) "
-                                 f"and contents ({repr(value)}) of {file}")
+                raise InconsistentValueError(
+                    f"Got different values for {repr(key)} in path "
+                    f"({repr(path_fields.get(key))}) and contents "
+                    f"({repr(value)}) of {file}"
+                )
         logger.routine(f"Ended loading {cls.__name__} from {file}")
         return report
 

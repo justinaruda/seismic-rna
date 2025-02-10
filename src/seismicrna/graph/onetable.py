@@ -61,7 +61,10 @@ class OneTableRelClusterGroupGraph(OneTableGraph,
 
     @cached_property
     def row_tracks(self):
-        return make_tracks(self.table, self.k, self.clust, k_clust_list=self.k_clust_list)
+        return make_tracks(self.table,
+                           self.k,
+                           self.clust,
+                           k_clust_list=self.k_clust_list)
 
 
 class OneTableWriter(TableWriter, ABC):

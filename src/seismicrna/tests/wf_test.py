@@ -8,11 +8,13 @@ from typing import Iterable
 from seismicrna.align import run as run_align
 from seismicrna.cluster import run as run_cluster
 from seismicrna.core import path
-from seismicrna.core.arg.cli import GROUP_BY_K, KEY_PEARSON
-from seismicrna.core.header import list_ks_clusts
+from seismicrna.core.arg.cli import GROUP_BY_K, GROUP_ALL, KEY_PEARSON
+from seismicrna.core.header import list_ks_clusts, K_CLUST_KEY
 from seismicrna.core.logs import Level, get_config, set_config
 from seismicrna.core.ngs import DuplicateSampleReferenceError
 from seismicrna.fold import run as run_fold
+from seismicrna.graph.cgroup import make_tracks
+from seismicrna.graph.profile import ProfileRunner
 from seismicrna.graph.corroll import RollingCorrelationRunner
 from seismicrna.graph.delprof import DeltaProfileRunner
 from seismicrna.graph.histpos import PositionHistogramRunner
@@ -27,13 +29,18 @@ from seismicrna.sim.fold import run as run_sim_fold
 from seismicrna.sim.params import run as run_sim_params
 from seismicrna.sim.ref import run as run_sim_ref
 from seismicrna.wf import run as run_wf
+from seismicrna.cluster.dataset import ClusterMutsDataset
 
 
-def list_step_dir_contents(parent_dir: Path, step: str, num_batches: int):
+def list_step_dir_contents(parent_dir: Path,
+                           step: str,
+                           num_batches: int,
+                           write_read_names: bool = True):
     files = [f"{step}-report.json", f"{step}-position-table.csv"]
     if step == "relate":
         files.append("refseq.brickle")
-        files.extend(f"names-batch-{i}.brickle" for i in range(num_batches))
+        if write_read_names:
+            files.extend(f"names-batch-{i}.brickle" for i in range(num_batches))
     elif step == "mask":
         files.append(f"{step}-read-table.csv.gz")
     elif step == "cluster":
@@ -68,7 +75,7 @@ class TestWorkflow(ut.TestCase):
         self._config = get_config()
         set_config(verbosity=Level.ERROR,
                    log_file_path=None,
-                   raise_on_error=True)
+                   exit_on_error=True)
         self.SIM_DIR.mkdir()
         self.OUT_DIR.mkdir()
 
@@ -125,6 +132,11 @@ class TestWorkflow(ut.TestCase):
         rel_graph_kwargs = graph_kwargs | dict(rels=("m",),
                                                use_ratio=True,
                                                quantile=0.0)
+        clust_rel_graph_kwargs = rel_graph_kwargs | {"cgroup":GROUP_ALL,
+                                                     K_CLUST_KEY:[(1,1),
+                                                                  (2,2)],
+                                                     "k":None,
+                                                     "clust":None}
         pair_graph_kwargs = rel_graph_kwargs | dict(out_dir=self.OUT_DIR,
                                                     comppair=True,
                                                     compself=False)
@@ -137,6 +149,8 @@ class TestWorkflow(ut.TestCase):
                out_dir=self.OUT_DIR,
                dmfastqx=[samples_dir],
                batch_size=batch_size,
+               brotli_level=0,
+               write_read_names=True,
                mask_coords=[(ref, end5, end3)
                             for ref, ref_coords in refs_coords.items()
                             for end5, end3 in ref_coords],
@@ -181,6 +195,10 @@ class TestWorkflow(ut.TestCase):
         ScatterRunner.run([self.OUT_DIR],
                           metric=KEY_PEARSON,
                           **pair_graph_kwargs)
+        # Re-run profile graph for clusters with arbitray (k, clust) list.
+        ProfileRunner.run([self.OUT_DIR.joinpath(sample).joinpath("cluster")
+                           for sample in samples],
+                          **clust_rel_graph_kwargs)
         # Confirm that all expected output files exist.
         graph_formats = [".csv", ".html", ".svg", ".pdf", ".png"]
         for sample in samples:
@@ -257,7 +275,8 @@ class TestWorkflow(ut.TestCase):
                                 file = graph_reg_dir.joinpath(f"{name}{ext}")
                                 with self.subTest(file=file):
                                     self.assertTrue(file.is_file())
-                        for name in ["abundance_clustered"]:
+                        for name in ["profile_clustered-x-x_m-ratio-q0",
+                                     "abundance_clustered"]:
                             file = graph_reg_dir.joinpath(f"{name}{ext}")
                             with self.subTest(file=file):
                                 self.assertTrue(file.is_file())
@@ -273,6 +292,24 @@ class TestWorkflow(ut.TestCase):
                                          f"{reg}__{profile}__varna-color.txt"]
                             ])
                 )
+        cluster_report = cluster_dir.joinpath("cluster-report.json")
+        cluster_dataset = ClusterMutsDataset(cluster_report)
+        target_tracks = [(1,1), (2,2)]
+        tracks = make_tracks(source=cluster_dataset,
+                             k=None,
+                             clust=None,
+                             k_clust_list=target_tracks)
+        self.assertListEqual(tracks, target_tracks)
+        tracks = make_tracks(source=cluster_dataset,
+                             k=1,
+                             clust=None,
+                             k_clust_list=[(2,2)])
+        self.assertListEqual(tracks, target_tracks)
+        tracks = make_tracks(source=cluster_dataset,
+                             k=None,
+                             clust=2,
+                             k_clust_list=[(1,1)])
+        self.assertListEqual(tracks, target_tracks)
         for sample1, sample2 in combinations(samples, 2):
             sample = f"{sample1}__and__{sample2}"
             sample_dir = self.OUT_DIR.joinpath(sample)
@@ -322,7 +359,7 @@ class TestWorkflowTwoOutDirs(ut.TestCase):
         self._config = get_config()
         set_config(verbosity=Level.ERROR,
                    log_file_path=None,
-                   raise_on_error=True)
+                   exit_on_error=True)
         self.SIM_DIR.mkdir()
         self.OUT_DIR.mkdir()
         for sim_dir, out_dir in zip(self.SIM_DIRS, self.OUT_DIRS, strict=True):
@@ -509,4 +546,4 @@ class TestWorkflowTwoOutDirs(ut.TestCase):
 
 
 if __name__ == "__main__":
-    ut.main()
+    ut.main(verbosity=2)
