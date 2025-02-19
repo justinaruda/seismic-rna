@@ -219,7 +219,7 @@ class DeconvolveTabulator(PartialTabulator, ABC):
         return [DeconvolvePositionTableWriter, DeconvolveAbundanceTableWriter]
 
     def __init__(self, *, num_clusters: int, **kwargs):
-        self.corr_editing_bias = kwargs.pop("corr_editing_bias", False)
+        self.deconv_count_mut_conf = kwargs.pop("deconv_count_mut_conf", False)
         self.cluster_list = kwargs.pop("cluster_list", None)
         self.positions_list = kwargs.pop("positions_list", None)
         self.confidences_list = kwargs.pop("confidences_list", None)
@@ -259,7 +259,7 @@ class DeconvolveTabulator(PartialTabulator, ABC):
                                ">1 GB of memory. If this is impractical, you "
                                "can (at the cost of lower accuracy) disable "
                                "bias correction using --min-mut-gap 0.")
-            if self.corr_editing_bias:
+            if self.deconv_count_mut_conf:
                 orig_df = pd.DataFrame(index=table_per_pos.index, columns=table_per_pos.columns)
                 for clust, pos, conf in zip(self.cluster_list, self.positions_list, self.confidences_list):
                     for pos_i, conf_i in zip(pos, conf):
@@ -278,7 +278,7 @@ class DeconvolveTabulator(PartialTabulator, ABC):
                                      self.min_mut_gap,
                                      self.quick_unbias,
                                      self.quick_unbias_thresh)
-                if self.corr_editing_bias:
+                if self.deconv_count_mut_conf:
                     for clust, pos in zip(self.cluster_list, self.positions_list):
                         for pos_i in pos:
                             for rel in (INFOR_REL, MUTAT_REL):
@@ -288,7 +288,7 @@ class DeconvolveTabulator(PartialTabulator, ABC):
             except Exception as error:
                 logger.warning(error)
             
-            if self.corr_editing_bias:
+            if self.deconv_count_mut_conf:
                 for clust, pos in zip(self.cluster_list, self.positions_list):
                     for pos_i in pos:
                         for rel in (INFOR_REL, MUTAT_REL):

@@ -6,13 +6,25 @@ from click import command
 
 from .write import deconvolve
 from ..core import path
-from ..core.arg import (CMD_DECONVOLVE,
+from ..core.arg import (MissingOptionError,
+                        CMD_DECONVOLVE,
                         arg_input_path,
                         opt_tmp_pfx,
                         opt_keep_tmp,
-                        opt_deconvolve_pos_table,
-                        opt_deconvolve_abundance_table,
+                        opt_deconv_pos_table,
+                        opt_deconv_abundance_table,
+                        opt_no_probe_path,
+                        opt_only_probe_path,
+                        opt_deconv_position,
+                        opt_deconv_pattern,
+                        opt_deconv_del,
+                        opt_deconv_ins,
                         opt_strict,
+                        opt_norm_muts,
+                        opt_deconv_min_reads,
+                        opt_deconv_combos,
+                        opt_conf_thresh,
+                        opt_deconv_count_mut_conf,
                         opt_brotli_level,
                         opt_max_procs,
                         opt_force)
@@ -90,26 +102,53 @@ def _get_matching_tables(deconvolve_paths: Iterable[str],
     return valid_groups
 
 @run_func(CMD_DECONVOLVE, with_tmp=True)
-def run(deconv_path: tuple[str, ...],
+def run(input_path: tuple[str, ...],
+        *,
+        deconv_position: tuple[int, ...] = (),
+        deconv_pattern: tuple[str, ...] = (),
+        deconv_del: bool,
+        deconv_ins: bool,
         no_probe_path: tuple[str, ...],
         only_probe_path: tuple[str, ...],
-        tup_positions: tuple[Iterable[Iterable[int]], ...],
-        tup_patterns: tuple[RelPattern, ...],
-        *,
-        combinations: Iterable[int] = [1],
+        deconv_combos: Iterable[int] = [1],
         conf_thresh: float,
-        norm_edits: bool,
-        corr_editing_bias: bool = False,
-        n_procs: int,
+        norm_muts: bool,
         strict: bool,
-        deconvolve_pos_table: bool,
-        deconvolve_abundance_table: bool,
+        deconv_count_mut_conf: bool,
+        deconv_min_reads: int,
+        deconv_pos_table: bool,
+        deconv_abundance_table: bool,
+        deconv_positions: tuple[Iterable[Iterable[int]], ...] = None,
+        deconv_patterns: tuple[RelPattern, ...] = None,
         brotli_level: int,
         max_procs: int,
         force: bool,
         tmp_dir: Path) -> list[Path]:
-    """ Cluster reads by mutation pattern. """
-    # Find the mask report files.
+    """ Cluster reads by mutation pattern. """   
+    if deconv_positions is not None:
+        deconv_position = deconv_positions
+    elif not deconv_position and not conf_thresh:
+        logger.error("Missing position(s) to cluster on.")
+        raise MissingOptionError("--deconv-position or --conf-thresh is required.")
+    elif deconv_position:
+        deconv_position = ((deconv_position,),)
+    else:
+        deconv_position = (tuple(),)
+    if deconv_patterns is not None:
+        patterns = deconv_patterns
+    elif not deconv_pattern:
+        logger.error("Missing mutation(s) to cluster on.")
+        raise MissingOptionError("--deconv-pattern is required.")
+    else:
+        all_subs = set(["ag", "at", "ac",
+                        "ga", "gt", "gc",
+                        "cg", "ct", "ca",
+                        "tg", "ta", "tc"])
+        deconv_pattern_set = set(deconv_pattern)
+        discounts = all_subs - deconv_pattern_set
+        patterns = tuple([RelPattern.from_counts(count_del=deconv_del,
+                                                 count_ins=deconv_ins,
+                                                 discount=discounts,)] * len(input_path))
     path_set = set()
     report_files = list()
     confidences = list()
@@ -118,14 +157,14 @@ def run(deconv_path: tuple[str, ...],
     no_probe_samples = list()
     only_probe_samples = list()
     for (deconv_elem,
-        no_probe_elem,
-        only_probe_elem,
-        pattern,
-        positions) in zip(deconv_path,
-                         no_probe_path,
-                         only_probe_path,
-                         tup_patterns,
-                          tup_positions):
+         no_probe_elem,
+         only_probe_elem,
+         pattern,
+         positions) in zip(input_path,
+                           no_probe_path,
+                           only_probe_path,
+                           patterns,
+                           deconv_position):
         deconv_reports = path.find_files(deconv_elem,
         load_mask_dataset.report_path_seg_types)
         norm = no_probe_elem is not None and only_probe_elem is not None
@@ -153,8 +192,8 @@ def run(deconv_path: tuple[str, ...],
                         if not deconvolve_table or not no_probe_table or not only_probe_table:
                             continue
                         bayes = calc_bayes(no_probe_table,
-                                            only_probe_table,
-                                            pattern)
+                                           only_probe_table,
+                                           pattern)
                         no_probe_samples.append(no_probe_table.sample)
                         only_probe_samples.append(only_probe_table.sample)
                         confidences.append(bayes)
@@ -166,7 +205,7 @@ def run(deconv_path: tuple[str, ...],
                     for position in report_indiv_positions:
                         report_positions += ((position,),)
                     report_files.append(file)
-                    for combination in combinations:
+                    for combination in deconv_combos:
                         report_positions += (tuple([group for group 
                                             in itertools.combinations(
                                                 report_indiv_positions, combination)]))
@@ -174,22 +213,25 @@ def run(deconv_path: tuple[str, ...],
                     all_patterns.append(pattern)
 
     arguments = [arg for arg in itertools.zip_longest(report_files,
-                                    all_positions,
-                                    all_patterns,
-                                    confidences,
-                                    no_probe_samples,
-                                    only_probe_samples)]
+                                                      all_positions,
+                                                      all_patterns,
+                                                      confidences,
+                                                      no_probe_samples,
+                                                      only_probe_samples)]
     # Cluster each mask dataset.
     return dispatch(deconvolve,
                     max_procs,
                     pass_n_procs=True,
                     args=arguments,
-                    kwargs=dict(deconvolve_pos_table=deconvolve_pos_table,
+                    kwargs=dict(no_probe_path = no_probe_path,
+                                only_probe_path = only_probe_path,
+                                deconv_pos_table=deconv_pos_table,
+                                deconv_abundance_table=deconv_abundance_table,
                                 conf_thresh=conf_thresh,
-                                deconvolve_abundance_table=deconvolve_abundance_table,
-                                norm_edits=norm_edits,
-                                corr_editing_bias=corr_editing_bias,
+                                norm_muts=norm_muts,
                                 strict=strict,
+                                deconv_count_mut_conf=deconv_count_mut_conf,
+                                deconv_min_reads=deconv_min_reads,
                                 brotli_level=brotli_level,
                                 force=force,
                                 tmp_dir=tmp_dir))
@@ -198,10 +240,21 @@ params = [
     # Input files
     arg_input_path,
     # Deconvolve options
+    opt_deconv_position,
+    opt_deconv_pattern,
+    opt_no_probe_path,
+    opt_only_probe_path,
+    opt_deconv_del,
+    opt_deconv_ins,
     opt_strict,
+    opt_norm_muts,
+    opt_deconv_min_reads,
+    opt_conf_thresh,
+    opt_deconv_combos,
+    opt_deconv_count_mut_conf,
     # Table options
-    opt_deconvolve_pos_table,
-    opt_deconvolve_abundance_table,
+    opt_deconv_pos_table,
+    opt_deconv_abundance_table,
     # Compression
     opt_brotli_level,
     # Parallelization

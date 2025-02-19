@@ -28,23 +28,24 @@ SEED_DTYPE = np.uint32
 from .table import DeconvolvePositionTable
 
 def deconvolve(mask_report_file: Path,
-            positions: Iterable[Iterable[int]],
-            pattern,
-            confidences,
-            no_probe_sample: str,
-            only_probe_sample: str,
-            *,
-            corr_editing_bias: bool = False,
-            conf_thresh: bool,
-            tmp_dir: Path,
-            n_procs: int,
-            brotli_level: int,
-            force: bool,
-            deconvolve_pos_table: bool,
-            deconvolve_abundance_table: bool,
-            strict: bool = False,
-            **kwargs):
-    norm_edits = kwargs.pop("norm_edits", None)
+               positions: Iterable[Iterable[int]],
+               pattern,
+               confidences,
+               no_probe_sample: str,
+               only_probe_sample: str,
+               *,
+               deconv_count_mut_conf: bool = False,
+               conf_thresh: bool,
+               tmp_dir: Path,
+               n_procs: int,
+               brotli_level: int,
+               force: bool,
+               deconv_pos_table: bool,
+               deconv_abundance_table: bool,
+               deconv_min_reads: int,
+               strict: bool = False,
+               **kwargs):
+    norm_muts = kwargs.pop("norm_muts", None)
     """ Deconvolve unique reads from one mask dataset. """
     # Check if the deconvolve report file already exists.
     deconvolve_report_file = recast_file_path(mask_report_file,
@@ -58,8 +59,9 @@ def deconvolve(mask_report_file: Path,
         deconv_run = DeconvRun(dataset=dataset,
                                positions=positions,
                                pattern=pattern,
-                               norm_edits=norm_edits,
-                               strict=strict)
+                               norm_muts=norm_muts,
+                               strict=strict,
+                               min_reads=deconv_min_reads)
         # Output the deconvolve memberships in batches of reads.
         batch_writer = DeconvolveBatchWriter(deconv_run,
                                              brotli_level,
@@ -86,13 +88,13 @@ def deconvolve(mask_report_file: Path,
     # Write the tables if they do not exist.
     DeconvolveDatasetTabulator(
         dataset=DeconvolveMutsDataset(deconvolve_report_file),
-        count_pos=deconvolve_pos_table,
+        count_pos=deconv_pos_table,
         count_read=False,
         positions_list=positions,
         confidences_list = confidences,
-        corr_editing_bias = corr_editing_bias,
+        deconv_count_mut_conf = deconv_count_mut_conf,
         max_procs=n_procs,
-    ).write_tables(pos=deconvolve_pos_table, clust=deconvolve_abundance_table)
+    ).write_tables(pos=deconv_pos_table, clust=deconv_abundance_table)
     return deconvolve_report_file.parent
     
 

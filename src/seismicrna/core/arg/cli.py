@@ -51,6 +51,9 @@ METRIC_KEYS = [KEY_MARCD,
                KEY_SPEARMAN,
                KEY_DETERM]
 
+class MissingOptionError(RuntimeError):
+    """ A required option is missing. """
+
 # Configuration options
 
 opt_config = Option(
@@ -920,6 +923,38 @@ opt_cluster_abundance_table = Option(
 
 # Deconvolve options
 
+opt_deconv_position = Option(
+    ("--deconv-position",),
+    type=int,
+    multiple=True,
+    default=(),
+    help="A position to cluster on."
+)
+
+opt_deconv_pattern = Option(
+    ("--deconv-pattern",),
+    type=str,
+    multiple=True,
+    default=(),
+    help="The mutation to cluster on."
+)
+
+opt_no_probe_path = Option(
+    ("--no-probe-path",),
+    type=Path(dir_okay=True, exists=True),
+    multiple=True,
+    default=(),
+    help="The path to a mask report for an untreated sample"
+)
+
+opt_only_probe_path = Option(
+    ("--only-probe-path",),
+    type=Path(dir_okay=True, exists=True),
+    multiple=True,
+    default=(),
+    help="The path to a mask report for where mutations are only due to DMS"
+)
+
 opt_strict = Option(
     ("--strict/--no-strict",),
     type=bool,
@@ -927,15 +962,70 @@ opt_strict = Option(
     help="Guarantee reads edited at specific positions are edited nowhere else"
 )
 
-opt_deconvolve_pos_table = Option(
-    ("--deconvolve-pos-table/--no-deconvolve-pos-table",),
+opt_deconv_del = Option(
+    ("--deconv-del/--no-deconv-del",),
+    type=bool,
+    default=False,
+    help="Cluster on deletions"
+)
+
+opt_deconv_ins = Option(
+    ("--deconv-ins/--no-deconv-ins",),
+    type=bool,
+    default=False,
+    help="Cluster on insertions"
+)
+
+opt_norm_muts = Option(
+    ("--norm-muts",),
+    type=bool,
+    default=True,
+    help=("Force clusters with an without mutations of interest to have a near-identical "
+          "mutation distribution elsewhere. This setting can result in discarding many "
+          "reads from both clusters but prevents confounding by linked mutations. If "
+          "mutations are known to be independent, this option can be disabled.")
+)
+
+opt_conf_thresh = Option(
+    ("--conf-thresh",),
+    type=float,
+    default=0.8,
+    help=("Automatically deconvolve positions above this confidence.")
+)
+
+opt_deconv_combos = Option(
+    ("--deconv-combos",),
+    type=int,
+    multiple=True,
+    default=(),
+    help="Automatically deconvolve all combinations of this many positions."
+)
+
+opt_deconv_min_reads = Option(
+    ("--deconv-min-reads",),
+    type=int,
+    default=1000,
+    help="Treat clusters with fewer than this many reads as having 0 reads"
+)
+
+opt_deconv_count_mut_conf = Option(
+    ("--deconv-count-mut-conf",),
+    type=bool,
+    default=False,
+    help=("Allow mutations being clustered on to contribute to mutation fraction "
+          "at positions other than those being clustered on. Mutations are "
+          "scaled by each position's Bayesian confidence.")
+)
+
+opt_deconv_pos_table = Option(
+    ("--deconv-pos-table/--no-deconv-pos-table",),
     type=bool,
     default=True,
     help="Tabulate relationships per position for deconvolved data"
 )
 
-opt_deconvolve_abundance_table = Option(
-    ("--deconvolve-abundance-table/--no-deconvolve-abundance-table",),
+opt_deconv_abundance_table = Option(
+    ("--deconv-abundance-table/--no-deconv-abundance-table",),
     type=bool,
     default=True,
     help="Tabulate number of reads per cluster for deconvolved data"

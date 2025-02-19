@@ -21,20 +21,45 @@ class DeconvRun(object):
                  dataset: MaskMutsDataset,
                  positions: Iterable[Iterable[int]],
                  pattern: RelPattern,
-                 min_reads=100,
+                 min_reads=1000,
                  strict=False,
-                 norm_edits=True):
+                 norm_muts=True):
         """
         Parameters
         ----------
-        
+        dataset: MaskMutsDataset
+            The dataset to deconvolve.
+        positions: Iterable[Iterable[int]]
+            The positions/sets of positions to cluster on.
+            ((1,),(1,5)) runs clustering twice, first reads  
+            are clustered if they have mutations only at position 1
+            and second, reads are clustered if they have mutations at 
+            both positions 1 and 5.
+        pattern: RelPattern
+            The relationships to count as mutations.
+        min_reads: int = 1000
+            Clusters with fewer than this many reads are treated as 
+            having zero reads.
+        strict: bool = False
+            Ensure that reads with a mutation at a specified position 
+            are mutated nowhere else. For instance, clustering on position 1 
+            without strict=False includes all reads that are mutated at 
+            position 1, even if they are also mutated at position 5. 
+            With strict=True, if a read is mutated at both position 1 
+            and position 5, it is discarded.
+        norm_muts: bool = True
+            Ensure the distribution of mutations between all other positions are 
+            equal between clusters. This setting can discard a large proportion 
+            of reads from both clusters, but prevents confounding effects by 
+            linked mutations. If the mutations are known to be independent, 
+            this option can be disabled.
         """
         self.dataset = dataset
         self.positions = positions
         self.pattern = pattern
         self.min_reads = min_reads
         self.strict = strict
-        self.norm_edits = norm_edits
+        self.norm_muts = norm_muts
         self._resps = dict()
         # Run deconvolution
         logger.warning(f"Deconvolving {self.dataset.ref} at positions {self.positions}")
@@ -124,7 +149,7 @@ class DeconvRun(object):
     def _get_edited(self, batch):
         ref = self.dataset.refseq
         strict = self.strict
-        norm_edits = self.norm_edits
+        norm_muts = self.norm_muts
         muts = batch.muts
         edited = None
         unedited = None
@@ -167,7 +192,7 @@ class DeconvRun(object):
         edited = np.fromiter(edited, int, len(edited))
         unedited = np.fromiter(unedited, int, len(unedited))
 
-        if norm_edits:
+        if norm_muts:
             
             uniq_ed, uniq_ed_counts = np.unique(self._assign_uniq(batch, edited), return_counts=True)
             uniq_uned, uniq_uned_counts = np.unique(self._assign_uniq(batch, unedited), return_counts=True)

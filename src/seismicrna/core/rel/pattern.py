@@ -247,6 +247,10 @@ class HalfRelPattern(object):
     def intersect(self, other: HalfRelPattern):
         """ Intersect the HalfRelPattern with another. """
         return self.__class__(*(set(self.codes) & set(other.codes)))
+    
+    def union(self, other: HalfRelPattern):
+        """ Union the HalfRelPattern with another. """
+        return self.__class__(*(set(self.codes) | set(other.codes)))
 
     def __str__(self):
         return f"{type(self).__name__} {self.patterns}"
@@ -313,6 +317,13 @@ class RelPattern(object):
             return self
         return self.__class__(self.yes.intersect(other.yes),
                               self.nos.intersect(other.nos))
+        
+    def union(self, other: RelPattern | None):
+        """ Union the pattern with another. """
+        if other is None:
+            return self
+        return self.__class__(self.yes.union(other.yes),
+                              self.nos.union(other.nos))
 
     def invert(self):
         """ Swap the `yes` and `nos` patterns. """
