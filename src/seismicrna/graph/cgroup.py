@@ -84,7 +84,8 @@ class ClusterGroupGraph(BaseGraph, ABC):
     """ Graph in which clusters can be placed in subplots. """
 
     def __init__(self, **kwargs):
-        self.k_clust_list = kwargs.pop(K_CLUST_KEY, None)
+        if self.k_clust_list is None:
+            self.k_clust_list = kwargs.pop(K_CLUST_KEY, None)
         super().__init__(**kwargs)
 
     @property

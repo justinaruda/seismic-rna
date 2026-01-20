@@ -150,9 +150,10 @@ class DeconvolvedRollingCorrelationGraph(RollingCorrelationGraph):
                 labels.append(f"{name}<br><sub>{reads:,} reads</sub>")
         return labels
     
-
+import inspect
 class OneRelDeconvolvedProfileGraph(OneRelProfileGraph):
     """ Bar graph with one relationship per position. """
+
     def __init__(self, **kwargs):
         DeconvolvedGraph.__init__(self, **kwargs)
         names = kwargs.pop("names", None)
@@ -161,7 +162,7 @@ class OneRelDeconvolvedProfileGraph(OneRelProfileGraph):
             if mapped_indexes:
                 kwargs[K_CLUST_KEY] = mapped_indexes
         super().__init__(**kwargs)
-    
+
     @cached_property
     def row_titles(self):
         """ Titles of the rows. """
