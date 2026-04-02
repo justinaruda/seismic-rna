@@ -1,24 +1,27 @@
-from os.path import exists
 from ..core.logs import logger
 from seismicrna.core.header import K_CLUST_KEY
 from seismicrna.graph.profile import OneRelProfileGraph, MultiRelsProfileGraph
 from seismicrna.graph.corroll import RollingCorrelationGraph
 from seismicrna.deconvolve.table import DeconvolvePositionTable
-from seismicrna.deconvolve.dataset import DeconvolveMutsDataset
+from ..deconvolve.report import DeconvolveReport
+from ..core.report import (DeconvolveClusterMappingF,
+                           DeconvolveConfidenceF,
+                           DeconvolveReadCountsF,
+                           DeconvolveClusterCountF)
 import pandas as pd
 from typing import Iterable
 from collections import Counter
 from functools import cached_property
 import numpy as np
 
-def format_clust_name(k: int, 
-                      clust: int, 
+def format_clust_name(k: int,
+                      clust: int,
                       mapping: dict,
                       clusters: Iterable[tuple[int, int]],
                       allow_zero: bool = False):
     index = np.where(clusters == (k, clust))[0][0]
     return list(mapping.keys())[index]
- 
+
 def format_clust_names(clusts: Iterable[tuple[int, int]],
                        mapping: dict,
                        index: Iterable[tuple[int, int]],
@@ -73,17 +76,19 @@ class DeconvolvedGraph:
         if hasattr(self, "table"):
             return
         if (table := kwargs.get("table")) or (table := kwargs.get("table1")):
-            if not hasattr(table, "tabulator"):
-                if exists(table.report_path):
-                    dataset = DeconvolveMutsDataset(table.report_path)
-                else:
-                    logger.error(f"No deconvolve report found for {table.ref} {table.reg}.")
-            else:
-                dataset = table.tabulator.dataset
-            self.cluster_index_to_name = dataset.cluster_index_to_name
-            self.name_to_cluster_index = dataset.name_to_cluster_index
-            self.deconv_confs = dataset.deconv_confs
-            self.read_counts = dataset.read_counts
+            report = DeconvolveReport.load(table.report_path)
+
+            name_to_cluster = report.get_field(DeconvolveClusterMappingF)
+            num_clusters = report.get_field(DeconvolveClusterCountF)
+            self.name_to_cluster_index = {
+                k: (num_clusters, v + 1)
+                for k, v in name_to_cluster.items()
+            }
+            self.cluster_index_to_name = {
+                v: k for k, v in self.name_to_cluster_index.items()
+            }
+            self.deconv_confs = report.get_field(DeconvolveConfidenceF)
+            self.read_counts = report.get_field(DeconvolveReadCountsF)
             self.table = table
         else:
             logger.error("DeconvolvedGraph missing keyword argument table")
@@ -121,7 +126,7 @@ class DeconvolvedRollingCorrelationGraph(RollingCorrelationGraph):
                                 k=self.k2,
                                 clust=self.clust2,
                                 exclude_masked=True)
-    
+
     @cached_property
     def row_titles(self):
         """ Titles of the rows. """
@@ -149,7 +154,7 @@ class DeconvolvedRollingCorrelationGraph(RollingCorrelationGraph):
             else:
                 labels.append(f"{name}<br><sub>{reads:,} reads</sub>")
         return labels
-    
+
 import inspect
 class OneRelDeconvolvedProfileGraph(OneRelProfileGraph):
     """ Bar graph with one relationship per position. """
@@ -208,3 +213,4 @@ class MultiRelsDeconvolvedProfileGraph(MultiRelsProfileGraph):
             else:
                 labels.append(f"{name}<br><sub>{reads:,} reads</sub>")
         return labels
+
